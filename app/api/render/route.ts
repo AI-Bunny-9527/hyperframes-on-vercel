@@ -6,7 +6,12 @@ import { PREVIEW_COMPOSITION_DIR } from "@/lib/preview";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-export async function POST() {
+export async function POST(request: Request) {
+    const key = request.headers.get("authorization");
+  if (key !== `Bearer ${process.env.RENDER_API_SECRET}`) {
+    return NextResponse.json({error: "No permission"}, {status: 401});
+  }
+
   try {
     const files = await collectFiles(PREVIEW_COMPOSITION_DIR);
     const { mp4 } = await renderInSandbox(files);
