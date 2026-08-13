@@ -1,0 +1,32 @@
+{
+  "name": "hyperframes-vercel-template",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build && tsx scripts/create-snapshot.ts",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test"
+  },
+  "dependencies": {
+    "@hyperframes/core": "^0.5.3",
+    "@hyperframes/player": "^0.5.3",
+    "@vercel/blob": "^2.3.3",
+    "@vercel/sandbox": "^1.6.0",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
