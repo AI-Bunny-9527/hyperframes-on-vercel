@@ -18,6 +18,8 @@ export async function POST(request: Request) {
 
     const blob = await put("renders/render.mp4", mp4, {
       access: "public",
+      oidcToken: request.headers.get("x-vercel-oidc-token") ?? undefined,
+      storeId: process.env.BLOB_STORE_ID,
       contentType: "video/mp4",
       addRandomSuffix: true,
       allowOverwrite: true,
