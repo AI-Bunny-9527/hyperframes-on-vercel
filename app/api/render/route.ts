@@ -7,9 +7,9 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: Request) {
-    const key = request.headers.get("authorization");
+  const key = request.headers.get("authorization");
   if (key !== `Bearer ${process.env.RENDER_API_SECRET}`) {
-    return NextResponse.json({error: "No permission"}, {status: 401});
+    return NextResponse.json({ error: "No permission" }, { status: 401 });
   }
 
   try {
@@ -18,8 +18,7 @@ export async function POST(request: Request) {
 
     const blob = await put("renders/render.mp4", mp4, {
       access: "public",
-      oidcToken: request.headers.get("x-vercel-oidc-token") ?? undefined,
-      storeId: process.env.BLOB_STORE_ID,
+      token: process.env.BLOB_READ_WRITE_TOKEN,
       contentType: "video/mp4",
       addRandomSuffix: true,
       allowOverwrite: true,
@@ -30,7 +29,7 @@ export async function POST(request: Request) {
     console.error("[/api/render] failed", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Render failed" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
