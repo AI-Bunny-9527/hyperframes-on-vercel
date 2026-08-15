@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { put } from "@vercel/blob";
 import { collectFiles, renderInSandbox } from "@/lib/sandbox";
 import { buildComposition, VideoPayload } from "@/lib/composition";
@@ -14,21 +17,23 @@ export async function POST(request: Request) {
 
   let payload: VideoPayload;
   try {
-    payload = await request.json();
+    payload = (await request.json()) as VideoPayload;
   } catch {
     return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
   }
 
-  const maxChars = 20000;
-  const text = (payload.text || payload.prompt || "").slice(0, maxChars);
+  const text = (payload.text || payload.prompt || "").slice(0, 20000);
 
   try {
-    const { composition, width, height, duration, sceneCount } = buildComposition({
+    const { html, width, height, duration, sceneCount } = buildComposition({
       ...payload,
       text,
     });
 
-    const files = await collectFiles(composition);
+    const dir = await mkdtemp(join(tmpdir(), "goman-comp-"));
+    await writeFile(join(dir, "index.html"), html, "utf8");
+
+    const files = await collectFiles(dir);
     const { mp4 } = await renderInSandbox(files);
 
     const blob = await put("renders/goman-video.mp4", mp4, {
