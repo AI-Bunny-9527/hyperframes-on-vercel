@@ -17,10 +17,18 @@ export async function POST(request: Request) {
 
   let payload: VideoPayload;
   try {
-    payload = (await request.json()) as VideoPayload;
-  } catch {
-    return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
-  }
+  payload = (await request.json()) as VideoPayload;
+} catch {
+  return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
+}
+
+console.log("[/api/render] 收到欄位：", Object.keys(payload));
+console.log("[/api/render] text 長度：", payload.text?.length);
+console.log("[/api/render] 有冇 hyperframes：", !!payload.hyperframes);
+console.log(
+  "[/api/render] hyperframes 內容 keys：",
+  Object.keys(payload.hyperframes || {})
+);
 
   const text = (payload.text || payload.prompt || "").slice(0, 20000);
   if (!text.trim()) {
