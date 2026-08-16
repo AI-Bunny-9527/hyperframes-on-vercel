@@ -1,9 +1,9 @@
 // app/api/render/route.ts
 // 接收主 App 傳嚟嘅參數，掛載 HyperFrames registry 組件，渲染影片。
 
-import { buildComposition } from "../../lib/composition";
+import { buildComposition } from "../../../lib/composition";
 // 注意：請根據你嘅 repo 結構調整 renderVideo 嘅 import 路徑
-import { renderVideo } from "../../lib/render-video";
+import { renderComposition } from "../../../lib/sandbox";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
