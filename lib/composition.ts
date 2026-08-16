@@ -1,170 +1,291 @@
-// lib/composition.ts  (v5 — 真正用 HyperFrames registry 組件)
-// 之前嘅版本自己砌純文字 HTML，所以無論揀邊個風格，出嚟都係「底色 + 文字」。
-// 呢個版本改為掛載官方組件（titlecard-calm / headline-slam / whiteboard-ink …），
-// 每個風格會有唔同動畫。
+// lib/composition.ts
+// v5：掛載 HyperFrames 官方 registry 組件，唔再自己砌純文字 HTML。
 
-import { fetchComponent, slotsFor, type SlotSpec } from "./registry";
+import {
+  fetchBlockHTML,
+  fetchComponentHTML,
+  getPresetSlots,
+  splitScenes,
+  type PresetSlots,
+  type SlotSpec,
+} from "./registry";
 
-export type VideoPayload = {
-  text?: string;
-  prompt?: string;
-  source_filename?: string;
-  style?: string;
-  aspect_ratio?: string;
-  duration_seconds?: number;
-  duration?: number;
-  pace?: "slow" | "normal" | "fast";
-  brand_name?: string;
-  brand_color?: string;
-  bgm?: string;
-  bgm_url?: string;
-  bgm_volume?: number;
-  hyperframes?: {
-    blocks?: string[];
-    components?: string[];
-    transitions?: string[];
-    caption_style?: string;
-  };
+export type HyperframesSpec = {
+  blocks: string[];
+  components: string[];
+  transitions: string[];
+  caption_style: string;
 };
 
-const DIMS: Record<string, { width: number; height: number }> = {
+export type BuildArgs = {
+  text: string;
+  prompt?: string;
+  style: string;
+  aspectRatio: string;
+  durationSeconds: number;
+  pace: "slow" | "normal" | "fast";
+  bgm?: string;
+  hyperframes?: HyperframesSpec;
+  sourceFilename?: string;
+  brand_name?: string;
+  brand_color?: string;
+  subtitles?: boolean;
+  narration_language?: string | null;
+  voice?: string | null;
+};
+
+const DIMENSIONS: Record<string, { width: number; height: number }> = {
   "16:9": { width: 1920, height: 1080 },
   "9:16": { width: 1080, height: 1920 },
   "1:1": { width: 1080, height: 1080 },
   "4:5": { width: 1080, height: 1350 },
 };
 
-const PACE: Record<string, number> = { slow: 6, normal: 4.5, fast: 3 };
-
-function esc(s: string) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function splitScenes(text: string, max: number): string[] {
-  const parts = text
-    .split(/\n{2,}|(?<=[。！？!?；;])\s*/)
-    .map((s) => s.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-  if (parts.length === 0) return ["GoMan 為你帶來最新市場洞察"];
-  if (parts.length <= max) return parts;
-  const per = Math.ceil(parts.length / max);
-  const out: string[] = [];
-  for (let i = 0; i < parts.length; i += per) out.push(parts.slice(i, i + per).join(" "));
-  return out.slice(0, max);
-}
-
-export type BuiltComposition = {
-  html: string;
-  /** 相對檔名 → 檔案內容，route 要一齊寫入渲染資料夾 */
-  files: Record<string, string>;
-  width: number;
-  height: number;
-  duration: number;
-  sceneCount: number;
+const PACE_SECONDS: Record<string, number> = {
+  slow: 6,
+  normal: 4,
+  fast: 2.5,
 };
 
-export async function buildComposition(payload: VideoPayload): Promise<BuiltComposition> {
-  const { width, height } = DIMS[payload.aspect_ratio || "16:9"] ?? DIMS["16:9"];
-  const requested = Number(payload.duration_seconds ?? payload.duration) || 30;
-  const duration = Math.max(6, Math.min(300, requested));
-  const per = PACE[payload.pace || "normal"] ?? 4.5;
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
-  const sceneCount = Math.max(2, Math.min(24, Math.round(duration / per)));
-  const sceneSeconds = duration / sceneCount;
+function toJsonAttr(obj: unknown): string {
+  return escapeHtml(JSON.stringify(obj));
+}
 
-  const raw = (payload.text || payload.prompt || "GoMan 為你帶來最新市場洞察").toString();
-  const scenes = splitScenes(raw, sceneCount);
-  const brand = payload.brand_name || "";
-  const accent = payload.brand_color || "#C8102E";
+export async function buildComposition(args: BuildArgs) {
+  const dims = DIMENSIONS[args.aspectRatio] ?? DIMENSIONS["16:9"];
+  const sceneSeconds = PACE_SECONDS[args.pace] ?? 4;
+  const maxScenes = Math.max(2, Math.round(args.durationSeconds / sceneSeconds));
+  const sceneTexts = splitScenes(args.text, maxScenes);
+  const brand = args.brand_name || "";
 
-  const recipe = slotsFor(payload.style);
-  const pick = (i: number): SlotSpec => {
-    if (i === 0) return recipe.intro;
-    if (i === scenes.length - 1) return recipe.outro;
-    return recipe.body[(i - 1) % recipe.body.length];
-  };
+  const preset = getPresetSlots(args.style, args.hyperframes);
 
-  // 下載每個用到嘅組件
-  const used = Array.from(new Set(scenes.map((_, i) => pick(i).component)));
-  const files: Record<string, string> = {};
+  const neededBlocks = new Set(preset.slots.map((s) => s.block));
+  const neededComponents = new Set(preset.slots.map((s) => s.component));
+
+  const blockHTML: Record<string, string> = {};
+  const componentHTML: Record<string, string> = {};
+
   await Promise.all(
-    used.map(async (name) => {
-      files[`components/${name}.html`] = await fetchComponent(name);
-    }),
+    Array.from(neededBlocks).map(async (name) => {
+      try {
+        blockHTML[name] = await fetchBlockHTML(name);
+      } catch (e) {
+        console.warn(`[composition] block not found: ${name}`, e);
+        blockHTML[name] = `<div class="hf-fallback" style="width:100%;height:100%;background:#111;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;">${name}</div>`;
+      }
+    })
   );
 
-  const mounts = scenes
-    .map((text, i) => {
-      const slot = pick(i);
-      const vars = slot.vars(text, i, brand);
-      const start = +(i * sceneSeconds).toFixed(3);
-      return `      <div
-        id="scene-${i}"
-        class="mount"
-        data-composition-id="${slot.component}"
-        data-composition-src="./components/${slot.component}.html"
-        data-variable-values='${esc(JSON.stringify(vars)).replace(/'/g, "&#39;")}'
-        data-start="${start}"
-        data-duration="${sceneSeconds.toFixed(3)}"
-        data-track-index="0"
-        data-width="${width}"
-        data-height="${height}"
-      ></div>`;
+  await Promise.all(
+    Array.from(neededComponents).map(async (name) => {
+      try {
+        componentHTML[name] = await fetchComponentHTML(name);
+      } catch (e) {
+        console.warn(`[composition] component not found: ${name}`, e);
+        componentHTML[name] = `<div class="hf-fallback" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:sans-serif;color:#fff;">${name}</div>`;
+      }
+    })
+  );
+
+  const totalDuration = sceneTexts.length * sceneSeconds;
+  const totalFrames = Math.round(totalDuration * 30);
+
+  const clips = sceneTexts.map((body, i) => {
+    const slot = preset.slots[i % preset.slots.length];
+    const transition =
+      i < sceneTexts.length - 1
+        ? preset.transitions[i % preset.transitions.length]
+        : undefined;
+    const start = i * sceneSeconds;
+    const duration = sceneSeconds;
+    const vars = slot.vars(body, i, brand);
+
+    return {
+      id: `scene-${i + 1}`,
+      block: slot.block,
+      component: slot.component,
+      start,
+      duration,
+      transition,
+      vars,
+    };
+  });
+
+  const clipHTML = clips
+    .map((clip) => {
+      const block = blockHTML[clip.block] || "";
+      const component = componentHTML[clip.component] || "";
+      return `
+      <div
+        class="clip"
+        id="${clip.id}"
+        data-start="${clip.start}"
+        data-duration="${clip.duration}"
+        data-transition-out="${clip.transition || "none"}"
+        data-variable-values='${toJsonAttr(clip.vars)}'
+        style="position:absolute;inset:0;opacity:0;pointer-events:none;"
+      >
+        <div class="block-layer" style="position:absolute;inset:0;z-index:1;">
+          ${block}
+        </div>
+        <div class="component-layer" style="position:absolute;inset:0;z-index:2;display:flex;align-items:center;justify-content:center;padding:8%;">
+          ${component}
+        </div>
+      </div>`;
     })
     .join("\n");
 
-  const bgm = payload.bgm_url || payload.bgm || "";
-  const audio = bgm
-    ? `      <audio src="${esc(bgm)}" data-start="0" data-duration="${duration}" data-track-index="1" data-volume="${
-        typeof payload.bgm_volume === "number" ? payload.bgm_volume : 0.25
-      }"></audio>`
-    : "";
+  const brandColor = args.brand_color || "#C8102E";
 
-  const html = `<!doctype html>
-<html lang="zh-HK">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=${width}, height=${height}" />
-    <title>GoMan Video</title>
-    <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: ${width}px; height: ${height}px; overflow: hidden; background: #0b0c0e; }
-      #root {
-        --bg: #0b0c0e;
-        --fg: #f7f7f2;
-        --muted: #aeb6c2;
-        --surface: #111318;
-        --border: #292d35;
-        --accent: ${accent};
-        --font-display: "Noto Sans TC", "PingFang HK", "Helvetica Neue", Arial, sans-serif;
-        --font-body: "Noto Sans TC", "PingFang HK", Inter, system-ui, sans-serif;
-        --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        position: relative; width: ${width}px; height: ${height}px; overflow: hidden;
-        background: var(--bg); color: var(--fg);
-      }
-      .mount { position: absolute; inset: 0; container-type: size; overflow: hidden; }
-    </style>
-  </head>
-  <body>
-    <div
-      id="root"
-      data-composition-id="main"
-      data-start="0"
-      data-duration="${duration}"
-      data-width="${width}"
-      data-height="${height}"
-      data-fps="30"
-    >
-${mounts}
-${audio}
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
-    <script>
-      window.__timelines = window.__timelines || {};
-      window.__timelines["main"] = gsap.timeline({ paused: true });
-    </script>
-  </body>
+  const html = `<!DOCTYPE html>
+<html lang="${args.narration_language?.startsWith("en") ? "en" : "zh-Hant"}">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(brand || "GoMan Video")}</title>
+  <style>
+    :root {
+      --brand: ${brandColor};
+      --accent: ${brandColor};
+      --accent-2: #3B82F6;
+      --bg: #0F172A;
+      --ink: #ffffff;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      overflow: hidden;
+      font-family: Inter, "Noto Sans TC", system-ui, sans-serif;
+    }
+    #stage {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: var(--bg);
+    }
+    .clip { will-change: opacity, transform; }
+    .hf-fallback { font-size: 48px; }
+  </style>
+</head>
+<body>
+  <div
+    id="stage"
+    data-composition-id="goman-video"
+    data-width="${dims.width}"
+    data-height="${dims.height}"
+    data-start="0"
+    data-duration="${totalDuration}"
+  >
+    ${clipHTML}
+  </div>
+
+  <script>
+  (function () {
+    const stage = document.getElementById("stage");
+    const clips = Array.from(stage.querySelectorAll(".clip"));
+    const duration = parseFloat(stage.dataset.duration) || 10;
+    const fps = 30;
+
+    function applyVars(clip) {
+      const raw = clip.dataset.variableValues;
+      if (!raw) return;
+      try {
+        const vars = JSON.parse(raw);
+        clip.querySelectorAll("[data-variable]").forEach((el) => {
+          const key = el.dataset.variable;
+          if (vars[key] !== undefined) el.textContent = vars[key];
+        });
+      } catch (e) { /* ignore */ }
+    }
+
+    clips.forEach(applyVars);
+
+    const timeline = {
+      duration: function () { return duration; },
+      time: function () {
+        if (typeof window.__gomanTime === "number") return window.__gomanTime;
+        return 0;
+      },
+      progress: function () {
+        const t = this.time();
+        return duration ? t / duration : 0;
+      },
+      seek: function (t) {
+        window.__gomanTime = Math.max(0, Math.min(duration, t));
+        this.renderAt(window.__gomanTime);
+      },
+      renderAt: function (t) {
+        clips.forEach((clip) => {
+          const start = parseFloat(clip.dataset.start) || 0;
+          const dur = parseFloat(clip.dataset.duration) || 4;
+          const end = start + dur;
+          const trans = clip.dataset.transitionOut || "none";
+          const fade = 0.4;
+
+          let opacity = 0;
+          if (t >= start && t < end) {
+            if (t < start + fade) opacity = (t - start) / fade;
+            else if (t > end - fade) opacity = (end - t) / fade;
+            else opacity = 1;
+          }
+
+          if (trans !== "none" && t >= end && t < end + fade) {
+            opacity = Math.max(0, 1 - (t - end) / fade);
+          }
+
+          clip.style.opacity = Math.max(0, Math.min(1, opacity)).toFixed(3);
+        });
+      },
+      play: function () { return this; },
+      pause: function () { return this; }
+    };
+
+    window.__timelines = window.__timelines || {};
+    window.__timelines["goman-video"] = timeline;
+    window.__HYPERFRAMES_READY__ = true;
+
+    timeline.renderAt(0);
+  })();
+  </script>
+</body>
 </html>`;
 
-  return { html, files, width, height, duration, sceneCount: scenes.length };
+  return {
+    html,
+    width: dims.width,
+    height: dims.height,
+    duration: totalDuration,
+    durationInFrames: totalFrames,
+    fps: 30,
+    style: args.style,
+    captionStyle: preset.caption_style,
+    audio: args.bgm ? { src: args.bgm, volume: 0.25 } : undefined,
+    metadata: {
+      prompt: args.prompt,
+      sourceFilename: args.sourceFilename,
+      brand_name: args.brand_name,
+      brand_color: args.brand_color,
+      subtitles: args.subtitles,
+      narration_language: args.narration_language,
+      voice: args.voice,
+      pace: args.pace,
+      hyperframes: args.hyperframes,
+    },
+    sceneCount: sceneTexts.length,
+  };
 }
