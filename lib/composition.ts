@@ -194,7 +194,7 @@ export function buildComposition(payload: VideoPayload): {
 </style>
 </head>
 <body>
-  <div id="root" class="${captionClass}">
+  <div id="root" class="${captionClass}" data-composition-id="goman-video" data-width="${width}" data-height="${height}" data-start="0" data-duration="${duration}">
     <div id="brand">${brand}</div>
 ${sceneDivs}
     <div id="accentbar"></div>
@@ -235,7 +235,7 @@ ${audio}
       return time;
     }
 
-    var currentTime = renderAt(0.001);
+    var currentTime = renderAt(Math.min(1, PER / 2));
     var timeline = {
       seek: function (seconds) { currentTime = renderAt(seconds); return timeline; },
       time: function (seconds) {
@@ -248,6 +248,7 @@ ${audio}
       },
       duration: function () { return TOTAL; },
       totalDuration: function () { return TOTAL; },
+      play: function () { return timeline; },
       pause: function () { return timeline; }
     };
     window.__timelines["goman-video"] = timeline;
