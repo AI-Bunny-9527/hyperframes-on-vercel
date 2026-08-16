@@ -1,7 +1,8 @@
+// app/api/render/route.ts  (v5 — 配合會下載 registry 組件嘅 composition.ts)
 import { NextResponse } from "next/server";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { put } from "@vercel/blob";
 import { collectFiles, renderInSandbox } from "@/lib/sandbox";
 import { buildComposition, type VideoPayload } from "@/lib/composition";
@@ -17,18 +18,10 @@ export async function POST(request: Request) {
 
   let payload: VideoPayload;
   try {
-  payload = (await request.json()) as VideoPayload;
-} catch {
-  return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
-}
-
-console.log("[/api/render] 收到欄位：", Object.keys(payload));
-console.log("[/api/render] text 長度：", payload.text?.length);
-console.log("[/api/render] 有冇 hyperframes：", !!payload.hyperframes);
-console.log(
-  "[/api/render] hyperframes 內容 keys：",
-  Object.keys(payload.hyperframes || {})
-);
+    payload = (await request.json()) as VideoPayload;
+  } catch {
+    return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
+  }
 
   const text = (payload.text || payload.prompt || "").slice(0, 20000);
   if (!text.trim()) {
@@ -36,7 +29,7 @@ console.log(
   }
 
   try {
-    const { html, width, height, duration, sceneCount } = buildComposition({
+    const { html, files, width, height, duration, sceneCount } = await buildComposition({
       ...payload,
       text,
     });
@@ -44,8 +37,17 @@ console.log(
     const dir = await mkdtemp(join(tmpdir(), "goman-comp-"));
     await writeFile(join(dir, "index.html"), html, "utf8");
 
-    const files = await collectFiles(dir);
-    const { mp4 } = await renderInSandbox(files);
+    // 將 registry 組件寫入同一個資料夾，data-composition-src 先搵到
+    for (const [rel, content] of Object.entries(files)) {
+      const target = join(dir, rel);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, content, "utf8");
+    }
+
+    console.log("[/api/render] style:", payload.style, "scenes:", sceneCount, "components:", Object.keys(files));
+
+    const collected = await collectFiles(dir);
+    const { mp4 } = await renderInSandbox(collected);
 
     const blob = await put("renders/goman-video.mp4", mp4, {
       access: "public",
@@ -56,21 +58,13 @@ console.log(
 
     return NextResponse.json({
       url: blob.url,
-      meta: {
-        width,
-        height,
-        duration,
-        scenes: sceneCount,
-        style: payload.style || "minimal",
-        aspect_ratio: payload.aspect_ratio || "9:16",
-        source_filename: payload.source_filename,
-      },
+      meta: { width, height, duration, sceneCount, style: payload.style ?? null },
     });
-  } catch (err) {
-    console.error("[/api/render] failed", err);
+  } catch (error) {
+    console.error("[/api/render] failed", error);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Render failed" },
-      { status: 500 }
+      { error: (error as Error)?.message || "render failed" },
+      { status: 500 },
     );
   }
 }
