@@ -1,108 +1,292 @@
 // lib/registry.ts
-// 由 HyperFrames 官方 registry 取真正嘅動畫組件（component），
-// 而唔係自己砌純文字 HTML。組件會被寫入渲染資料夾，
-// index.html 用 data-composition-src 掛載佢哋。
+// 由 HyperFrames 官方 registry 下載真正嘅動畫組件，
+// 並將 preset 映射到可用嘅 scene slots。
 
-const RAW =
-  "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry/components";
-
-/** 一個 scene 用邊個組件 + 佢嘅變數點樣由文字砌出嚟 */
 export type SlotSpec = {
+  /** 背景 / scene 框架（registry/blocks 入面） */
+  block: string;
+  /** 前景文字 / 動畫效果（registry/components 入面） */
   component: string;
+  /** 將用戶文字映射到組件變數 */
   vars: (text: string, index: number, brand: string) => Record<string, unknown>;
 };
 
-const firstWords = (t: string, n: number) => t.replace(/\s+/g, " ").trim().slice(0, n);
-
-const TITLE = (accent: string): SlotSpec => ({
-  component: "titlecard-calm",
-  vars: (t, _i, brand) => ({ headline: firstWords(t, 46), kicker: brand || "GOMAN" }),
-});
-
-const SLAM: SlotSpec = {
-  component: "headline-slam",
-  vars: (t) => ({ text: firstWords(t, 34), accent_word_index: 1, accent: "green", shadow: true }),
+export type PresetSlots = {
+  slots: SlotSpec[];
+  transitions: string[];
+  caption_style: string;
 };
 
-const STAGGER: SlotSpec = {
-  component: "text-stagger",
-  vars: (t) => ({ text: firstWords(t, 90), size: 66, tone: "ink", accent: "blue" }),
+const RAW_BLOCKS =
+  "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry/blocks";
+const RAW_COMPONENTS =
+  "https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry/components";
+
+const PRESET_MAP: Record<string, PresetSlots> = {
+  financial_commentary: {
+    transitions: ["fade-soft", "slide-push"],
+    caption_style: "caption-highlight",
+    slots: [
+      {
+        block: "data-chart",
+        component: "titlecard-calm",
+        vars: (text) => ({
+          wordmark: text.slice(0, 40),
+          label: "",
+          kicker: "",
+        }),
+      },
+      {
+        block: "mk-progress-stat",
+        component: "chart-story",
+        vars: (text) => ({
+          text: text.slice(0, 120),
+          type: "line",
+          data: "12,28,45,64",
+          labels: "Q1,Q2,Q3,Q4",
+          emphasize: 3,
+        }),
+      },
+      {
+        block: "lower-third-bild",
+        component: "count-up",
+        vars: (text) => ({
+          text: text.slice(0, 80),
+          start: 0,
+          end: 100,
+          suffix: "%",
+        }),
+      },
+      {
+        block: "news-ticker",
+        component: "text-stagger",
+        vars: (text) => ({ text: text.slice(0, 120) }),
+      },
+    ],
+  },
+  social_short: {
+    transitions: ["whip-pan", "zoom-punch"],
+    caption_style: "caption-pill-karaoke",
+    slots: [
+      {
+        block: "yt-vertical-fill",
+        component: "headline-slam",
+        vars: (text) => ({ text: text.slice(0, 40) }),
+      },
+      {
+        block: "yt-lower-third",
+        component: "staggered-fade-up",
+        vars: (text) => ({ text: text.slice(0, 90) }),
+      },
+      {
+        block: "glitch",
+        component: "cta-lockup",
+        vars: (text, _i, brand) => ({
+          text: text.slice(0, 60),
+          label: brand || "Learn more",
+        }),
+      },
+    ],
+  },
+  whiteboard_tutorial: {
+    transitions: ["hw-scribble-transition", "ink-wipe"],
+    caption_style: "typewriter",
+    slots: [
+      {
+        block: "hw-title",
+        component: "typewriter",
+        vars: (text) => ({ text: text.slice(0, 50) }),
+      },
+      {
+        block: "hw-frame",
+        component: "whiteboard-ink",
+        vars: (text) => ({ text: text.slice(0, 120) }),
+      },
+      {
+        block: "hw-pipeline",
+        component: "staggered-fade-up",
+        vars: (text) => ({ text: text.slice(0, 120) }),
+      },
+      {
+        block: "hw-text-cloud",
+        component: "typewriter",
+        vars: (text) => ({ text: text.slice(0, 100) }),
+      },
+    ],
+  },
+  cinematic_brand: {
+    transitions: ["light-leak", "ridged-burn"],
+    caption_style: "caption-editorial-emphasis",
+    slots: [
+      {
+        block: "cinematic-zoom",
+        component: "titlecard-lockup",
+        vars: (text, _i, brand) => ({
+          wordmark: text.slice(0, 40),
+          label: brand || "",
+          kicker: "",
+        }),
+      },
+      {
+        block: "light-leak",
+        component: "text-stagger",
+        vars: (text) => ({ text: text.slice(0, 100) }),
+      },
+      {
+        block: "gallery-tunnel",
+        component: "logo-brand-close",
+        vars: (text, _i, brand) => ({
+          text: text.slice(0, 80),
+          wordmark: brand || "",
+        }),
+      },
+      {
+        block: "logo-outro",
+        component: "titlecard-lockup",
+        vars: (text, _i, brand) => ({
+          wordmark: brand || text.slice(0, 40),
+          label: "",
+          kicker: "",
+        }),
+      },
+    ],
+  },
+  explainer_clean: {
+    transitions: ["fade-soft", "slide-push"],
+    caption_style: "per-word-rise",
+    slots: [
+      {
+        block: "mk-callout-highlight",
+        component: "titlecard-calm",
+        vars: (text) => ({
+          wordmark: text.slice(0, 40),
+          label: "",
+          kicker: "",
+        }),
+      },
+      {
+        block: "mk-progress-stat",
+        component: "per-word-rise",
+        vars: (text) => ({ text: text.slice(0, 100) }),
+      },
+      {
+        block: "flowchart",
+        component: "typewriter",
+        vars: (text) => ({ text: text.slice(0, 120) }),
+      },
+      {
+        block: "logo-outro",
+        component: "titlecard-calm",
+        vars: (text, _i, brand) => ({
+          wordmark: brand || text.slice(0, 40),
+          label: "",
+          kicker: "",
+        }),
+      },
+    ],
+  },
+  energetic_promo: {
+    transitions: ["zoom-punch", "swirl-vortex"],
+    caption_style: "caption-kinetic-slam",
+    slots: [
+      {
+        block: "chromatic-radial-split",
+        component: "headline-slam",
+        vars: (text) => ({ text: text.slice(0, 40) }),
+      },
+      {
+        block: "swirl-vortex",
+        component: "count-up",
+        vars: (text) => ({
+          text: text.slice(0, 60),
+          start: 0,
+          end: 100,
+          suffix: "%",
+        }),
+      },
+      {
+        block: "mk-progress-stat",
+        component: "cta-lockup",
+        vars: (text, _i, brand) => ({
+          text: text.slice(0, 80),
+          label: brand || "Get started",
+        }),
+      },
+      {
+        block: "logo-outro",
+        component: "headline-slam",
+        vars: (text, _i, brand) => ({ text: brand || text.slice(0, 40) }),
+      },
+    ],
+  },
 };
 
-const FADE_UP: SlotSpec = {
-  component: "staggered-fade-up",
-  vars: (t) => ({ words: firstWords(t, 90), direction: "up", distance: "standard", tone: "ink" }),
-};
-
-const TYPE: SlotSpec = {
-  component: "typewriter",
-  vars: (t) => ({ text: firstWords(t, 80), tone: "ink", caret: "line" }),
-};
-
-const INK: SlotSpec = {
-  component: "whiteboard-ink",
-  vars: (t) => ({ sketch: "bulb", caption: firstWords(t, 40), pen: "show", accent: "green" }),
-};
-
-const LOCKUP: SlotSpec = {
-  component: "titlecard-lockup",
-  vars: (t, _i, brand) => ({
-    wordmark: (brand || "GOMAN").toUpperCase(),
-    label: firstWords(t, 52),
-    kicker: "INSIGHT",
-    rule: "show",
-    accent: "green",
-  }),
-};
-
-const QUOTE: SlotSpec = {
-  component: "testimonial-card",
-  vars: (t, _i, brand) => ({ quote: firstWords(t, 96), author: brand || "GoMan", handle: "", rating: 5 }),
-};
-
-const CTA: SlotSpec = {
-  component: "cta-lockup",
-  vars: (t, _i, brand) => ({
-    action_line: firstWords(t, 40),
-    button_label: brand || "GoMan",
-    microcopy: "",
-    accent: "green",
-  }),
-};
-
-const OUTRO: SlotSpec = {
-  component: "logo-brand-close",
-  vars: (_t, _i, brand) => ({
-    wordmark: (brand || "GOMAN").toUpperCase(),
-    tagline: "",
-    url: "",
-    accent: "green",
-  }),
-};
-
-/** preset value → 場景組件循環（第一個一定係開場，最後一個一定係收尾） */
-export const PRESET_SLOTS: Record<string, { intro: SlotSpec; body: SlotSpec[]; outro: SlotSpec }> = {
-  financial_commentary: { intro: TITLE("green"), body: [STAGGER, FADE_UP, QUOTE], outro: OUTRO },
-  social_short: { intro: SLAM, body: [SLAM, FADE_UP], outro: CTA },
-  whiteboard_tutorial: { intro: TYPE, body: [INK, TYPE, FADE_UP], outro: OUTRO },
-  cinematic_brand: { intro: LOCKUP, body: [STAGGER, QUOTE], outro: OUTRO },
-  explainer_clean: { intro: TITLE("blue"), body: [FADE_UP, STAGGER, TYPE], outro: OUTRO },
-  energetic_promo: { intro: SLAM, body: [SLAM, STAGGER], outro: CTA },
-};
-
-export function slotsFor(style: string | undefined) {
-  return PRESET_SLOTS[style || ""] ?? PRESET_SLOTS.explainer_clean;
-}
-
-/** 由 GitHub 拎組件 HTML（有 cache，唔會每次都下載） */
 const cache = new Map<string, string>();
 
-export async function fetchComponent(name: string): Promise<string> {
-  const hit = cache.get(name);
-  if (hit) return hit;
-  const res = await fetch(`${RAW}/${name}/${name}.html`, { cache: "force-cache" });
-  if (!res.ok) throw new Error(`registry component ${name} 下載失敗 (${res.status})`);
-  const html = await res.text();
-  cache.set(name, html);
-  return html;
+async function fetchText(url: string): Promise<string> {
+  const cached = cache.get(url);
+  if (cached) return cached;
+  const res = await fetch(url, { cache: "force-cache" });
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  const text = await res.text();
+  cache.set(url, text);
+  return text;
+}
+
+export async function fetchComponentHTML(name: string): Promise<string> {
+  return fetchText(`${RAW_COMPONENTS}/${name}/index.html`);
+}
+
+export async function fetchBlockHTML(name: string): Promise<string> {
+  return fetchText(`${RAW_BLOCKS}/${name}/index.html`);
+}
+
+export function getPresetSlots(
+  presetValue: string,
+  hyperframes?: {
+    blocks?: string[];
+    components?: string[];
+    transitions?: string[];
+    caption_style?: string;
+  }
+): PresetSlots {
+  const base = PRESET_MAP[presetValue] ?? PRESET_MAP["financial_commentary"];
+  if (!hyperframes) return base;
+
+  const blocks = hyperframes.blocks?.length ? hyperframes.blocks : base.slots.map((s) => s.block);
+  const components = hyperframes.components?.length
+    ? hyperframes.components
+    : base.slots.map((s) => s.component);
+  const transitions = hyperframes.transitions?.length
+    ? hyperframes.transitions
+    : base.transitions;
+  const caption_style = hyperframes.caption_style || base.caption_style;
+
+  const slots: SlotSpec[] = blocks.map((block, i) => {
+    const component = components[i % components.length];
+    const baseSlot = base.slots[i % base.slots.length];
+    return {
+      block,
+      component,
+      vars: baseSlot?.vars ?? ((text) => ({ text: text.slice(0, 100) })),
+    };
+  });
+
+  return { slots, transitions, caption_style };
+}
+
+export function splitScenes(text: string, maxScenes: number): string[] {
+  const chunks = text
+    .split(/\n{2,}|(?<=[。！？!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (chunks.length <= maxScenes) return chunks;
+
+  const perScene = Math.ceil(chunks.length / maxScenes);
+  const merged: string[] = [];
+  for (let i = 0; i < chunks.length; i += perScene) {
+    merged.push(chunks.slice(i, i + perScene).join(" "));
+  }
+  return merged;
 }
