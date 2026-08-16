@@ -14,7 +14,7 @@ export type SlotSpec = {
 
 const firstWords = (t: string, n: number) => t.replace(/\s+/g, " ").trim().slice(0, n);
 
-const TITLE = (accent: string): SlotSpec => ({
+const TITLE = (): SlotSpec => ({
   component: "titlecard-calm",
   vars: (t, _i, brand) => ({ headline: firstWords(t, 46), kicker: brand || "GOMAN" }),
 });
@@ -75,11 +75,11 @@ const OUTRO: SlotSpec = {
 
 /** preset value → 場景組件循環（第一個一定係開場，最後一個一定係收尾） */
 export const PRESET_SLOTS: Record<string, { intro: SlotSpec; body: SlotSpec[]; outro: SlotSpec }> = {
-  financial_commentary: { intro: TITLE("green"), body: [CALM, QUOTE], outro: OUTRO },
+  financial_commentary: { intro: TITLE(), body: [CALM, QUOTE], outro: OUTRO },
   social_short: { intro: SLAM, body: [SLAM, CTA], outro: CTA },
   whiteboard_tutorial: { intro: CALM, body: [INK, CALM], outro: OUTRO },
   cinematic_brand: { intro: LOCKUP, body: [CALM, QUOTE], outro: OUTRO },
-  explainer_clean: { intro: TITLE("blue"), body: [CALM, QUOTE], outro: OUTRO },
+  explainer_clean: { intro: TITLE(), body: [CALM, QUOTE], outro: OUTRO },
   energetic_promo: { intro: SLAM, body: [SLAM, CTA], outro: CTA },
 };
 
