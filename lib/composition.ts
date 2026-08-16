@@ -153,3 +153,105 @@ ${audio}
 
   return { html, width, height, duration, sceneCount };
 }
+export type HyperframesSpec = {
+  blocks: string[];
+  components: string[];
+  transitions: string[];
+  caption_style: string;
+};
+
+export type BuildArgs = {
+  text: string;
+  prompt?: string;
+  style: string;
+  aspectRatio: string;
+  durationSeconds: number;
+  pace: "slow" | "normal" | "fast";
+  bgm?: string;
+  hyperframes?: HyperframesSpec;
+  sourceFilename?: string;
+};
+
+const DIMENSIONS: Record<string, { width: number; height: number }> = {
+  "16:9": { width: 1920, height: 1080 },
+  "9:16": { width: 1080, height: 1920 },
+  "1:1": { width: 1080, height: 1080 },
+  "4:5": { width: 1080, height: 1350 },
+};
+
+const PACE_SECONDS: Record<string, number> = {
+  slow: 6,
+  normal: 4,
+  fast: 2.5,
+};
+
+const DEFAULT_HF: HyperframesSpec = {
+  blocks: ["titlecard-calm", "bullet-stack", "summary-card"],
+  components: ["stagger-in", "caption-clean"],
+  transitions: ["fade-soft"],
+  caption_style: "clean",
+};
+
+/** 將長文拆做一段段 scene 文字 */
+function splitScenes(text: string, maxScenes: number): string[] {
+  const chunks = text
+    .split(/\n{2,}|(?<=[。！？!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  if (chunks.length <= maxScenes) return chunks;
+
+  // 太多段就平均合併
+  const perScene = Math.ceil(chunks.length / maxScenes);
+  const merged: string[] = [];
+  for (let i = 0; i < chunks.length; i += perScene) {
+    merged.push(chunks.slice(i, i + perScene).join(" "));
+  }
+  return merged;
+}
+
+export function buildComposition(args: BuildArgs) {
+  const hf = args.hyperframes ?? DEFAULT_HF;
+  const dims = DIMENSIONS[args.aspectRatio] ?? DIMENSIONS["16:9"];
+  const sceneSeconds = PACE_SECONDS[args.pace] ?? 4;
+
+  const maxScenes = Math.max(
+    2,
+    Math.round(args.durationSeconds / sceneSeconds),
+  );
+  const sceneTexts = splitScenes(args.text, maxScenes);
+
+  const scenes = sceneTexts.map((body, i) => {
+    // blocks 循環使用；第一場一定用第一個 block（通常係標題卡）
+    const block = hf.blocks[i % hf.blocks.length];
+    const transition = hf.transitions[i % hf.transitions.length];
+
+    return {
+      id: `scene-${i + 1}`,
+      block,
+      durationInFrames: Math.round(sceneSeconds * 30),
+      props: {
+        title: i === 0 ? sceneTexts[0].slice(0, 40) : undefined,
+        body,
+        captionStyle: hf.caption_style,
+      },
+      components: hf.components,
+      transitionOut: i < sceneTexts.length - 1 ? transition : undefined,
+    };
+  });
+
+  return {
+    fps: 30,
+    width: dims.width,
+    height: dims.height,
+    durationInFrames: scenes.reduce((n, s) => n + s.durationInFrames, 0),
+    style: args.style,
+    captionStyle: hf.caption_style,
+    audio: args.bgm ? { src: args.bgm, volume: 0.25 } : undefined,
+    metadata: {
+      prompt: args.prompt,
+      sourceFilename: args.sourceFilename,
+    },
+    scenes,
+  };
+}
