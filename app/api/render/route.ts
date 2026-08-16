@@ -63,3 +63,54 @@ export async function POST(request: Request) {
     );
   }
 }
+type RenderBody = {
+  text: string;
+  source_filename?: string;
+  prompt?: string;
+  aspect_ratio?: string;      // "16:9" | "9:16" | "1:1" | "4:5"
+  style?: string;             // preset value, e.g. "financial_commentary"
+  duration_seconds?: number;
+  pace?: "slow" | "normal" | "fast";
+  bgm?: string;
+  hyperframes?: {
+    blocks: string[];
+    components: string[];
+    transitions: string[];
+    caption_style: string;
+  };
+};
+
+export async function POST(request: Request) {
+  const body = (await request.json()) as RenderBody;
+
+  const {
+    text,
+    source_filename,
+    prompt,
+    aspect_ratio = "16:9",
+    style = "financial_commentary",
+    duration_seconds = 30,
+    pace = "normal",
+    bgm,
+    hyperframes,
+  } = body;
+
+  if (!text || !text.trim()) {
+    return Response.json({ error: "text is required" }, { status: 400 });
+  }
+
+  const composition = buildComposition({
+    text,
+    prompt,
+    style,
+    aspectRatio: aspect_ratio,
+    durationSeconds: duration_seconds,
+    pace,
+    bgm,
+    hyperframes,           // ← 關鍵：傳落去
+    sourceFilename: source_filename,
+  });
+
+  const result = await renderVideo(composition);
+  return Response.json(result);
+}
