@@ -1,70 +1,87 @@
-// app/api/render/route.ts  (v5 — 配合會下載 registry 組件嘅 composition.ts)
-import { NextResponse } from "next/server";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import { put } from "@vercel/blob";
-import { collectFiles, renderInSandbox } from "@/lib/sandbox";
-import { buildComposition, type VideoPayload } from "@/lib/composition";
+// app/api/render/route.ts
+// 接收主 App 傳嚟嘅參數，掛載 HyperFrames registry 組件，渲染影片。
 
-export const runtime = "nodejs";
+import { buildComposition } from "../../lib/composition";
+// 注意：請根據你嘅 repo 結構調整 renderVideo 嘅 import 路徑
+import { renderVideo } from "../../lib/render-video";
+
 export const maxDuration = 300;
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const key = request.headers.get("authorization");
-  if (key !== `Bearer ${process.env.RENDER_API_SECRET}`) {
-    return NextResponse.json({ error: "No permission" }, { status: 401 });
-  }
-
-  let payload: VideoPayload;
   try {
-    payload = (await request.json()) as VideoPayload;
-  } catch {
-    return NextResponse.json({ error: "Bad JSON body" }, { status: 400 });
-  }
+    const body = (await request.json()) as Record<string, unknown>;
 
-  const text = (payload.text || payload.prompt || "").slice(0, 20000);
-  if (!text.trim()) {
-    return NextResponse.json({ error: "text is required" }, { status: 400 });
-  }
-
-  try {
-    const { html, files, width, height, duration, sceneCount } = await buildComposition({
-      ...payload,
+    const {
       text,
-    });
+      source_filename,
+      prompt,
+      aspect_ratio = "16:9",
+      style = "financial_commentary",
+      duration_seconds = 30,
+      pace = "normal",
+      bgm,
+      hyperframes,
+      brand_name,
+      brand_color,
+      subtitles,
+      narration_language,
+      voice,
+      test,
+    } = body;
 
-    const dir = await mkdtemp(join(tmpdir(), "goman-comp-"));
-    await writeFile(join(dir, "index.html"), html, "utf8");
-
-    // 將 registry 組件寫入同一個資料夾，data-composition-src 先搵到
-    for (const [rel, content] of Object.entries(files)) {
-      const target = join(dir, rel);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, content, "utf8");
+    if (test === true) {
+      return Response.json({ url: "" });
     }
 
-    console.log("[/api/render] style:", payload.style, "scenes:", sceneCount, "components:", Object.keys(files));
+    if (!text || typeof text !== "string" || !text.trim()) {
+      return Response.json({ error: "text is required" }, { status: 400 });
+    }
 
-    const collected = await collectFiles(dir);
-    const { mp4 } = await renderInSandbox(collected);
-
-    const blob = await put("renders/goman-video.mp4", mp4, {
-      access: "public",
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-      contentType: "video/mp4",
-      addRandomSuffix: true,
+    const composition = await buildComposition({
+      text,
+      prompt: typeof prompt === "string" ? prompt : undefined,
+      style: typeof style === "string" ? style : "financial_commentary",
+      aspectRatio: typeof aspect_ratio === "string" ? aspect_ratio : "16:9",
+      durationSeconds: typeof duration_seconds === "number" ? duration_seconds : 30,
+      pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
+      bgm: typeof bgm === "string" ? bgm : undefined,
+      hyperframes:
+        hyperframes &&
+        typeof hyperframes === "object" &&
+        !Array.isArray(hyperframes)
+          ? (hyperframes as {
+              blocks: string[];
+              components: string[];
+              transitions: string[];
+              caption_style: string;
+            })
+          : undefined,
+      sourceFilename: typeof source_filename === "string" ? source_filename : undefined,
+      brand_name: typeof brand_name === "string" ? brand_name : undefined,
+      brand_color: typeof brand_color === "string" ? brand_color : undefined,
+      subtitles: typeof subtitles === "boolean" ? subtitles : undefined,
+      narration_language:
+        typeof narration_language === "string" ? narration_language : null,
+      voice: typeof voice === "string" ? voice : null,
     });
 
-    return NextResponse.json({
-      url: blob.url,
-      meta: { width, height, duration, sceneCount, style: payload.style ?? null },
+    console.log("[render] composition ready", {
+      width: composition.width,
+      height: composition.height,
+      duration: composition.duration,
+      sceneCount: composition.sceneCount,
+      style: composition.style,
+      captionStyle: composition.captionStyle,
     });
-  } catch (error) {
-    console.error("[/api/render] failed", error);
-    return NextResponse.json(
-      { error: (error as Error)?.message || "render failed" },
-      { status: 500 },
+
+    const result = await renderVideo(composition);
+    return Response.json(result);
+  } catch (e) {
+    console.error("[render] failed", e);
+    return Response.json(
+      { error: "render_failed", message: (e as Error).message },
+      { status: 500 }
     );
   }
 }
