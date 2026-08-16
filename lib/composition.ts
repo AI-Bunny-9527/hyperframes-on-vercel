@@ -1,6 +1,7 @@
 /**
  * GoMan × HyperFrames composition builder.
  * Self-contained: no external type imports, so the Next.js build never breaks.
+ * Exports exactly ONE buildComposition().
  */
 
 export type HyperframesSpec = {
@@ -93,7 +94,7 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** HyperFrames block name -> layout class */
+/** HyperFrames block name -> layout class used in the generated HTML */
 function blockClass(block: string): string {
   const b = (block || "").toLowerCase();
   if (b.includes("title")) return "b-title";
@@ -151,6 +152,7 @@ export function buildComposition(payload: VideoPayload): {
     : "";
 
   const captionClass = `cap-${esc(hf.caption_style || "clean")}`;
+  const scenePayload = JSON.stringify(scenes);
 
   const html = `<!doctype html>
 <html lang="zh-HK">
@@ -158,19 +160,19 @@ export function buildComposition(payload: VideoPayload): {
 <meta charset="utf-8">
 <meta name="viewport" content="width=${width}, height=${height}">
 <title>GoMan Video</title>
-<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { margin:0; width:${width}px; height:${height}px; overflow:hidden; background:${theme.bg}; }
   #root { position:relative; width:${width}px; height:${height}px; overflow:hidden;
           background:${theme.bg}; color:${theme.text}; font-family:${theme.font}; }
-  .scene { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-           padding:${Math.round(width * 0.09)}px; opacity:0; }
+  .scene { position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+           padding:${Math.round(width * 0.09)}px; opacity:1; }
+  .scene:first-of-type { display:flex; }
   .line { font-size:${fontSize}px; line-height:1.45; font-weight:700; text-align:center; max-width:100%; }
   .line.title { font-size:${Math.round(fontSize * 1.35)}px; font-weight:900; letter-spacing:.01em; }
 
   .b-title  { align-items:center; }
-  .b-slam .line { font-weight:900; font-size:${Math.round(fontSize * 1.2)}px; }
+  .b-slam .line { font-weight:900; font-size:${Math.round(fontSize * 1.2)}px; text-transform:none; }
   .b-bullet { align-items:flex-start; padding-top:${Math.round(height * 0.22)}px; }
   .b-bullet .line { text-align:left; border-left:${Math.round(width * 0.008)}px solid ${theme.accent};
                     padding-left:${Math.round(width * 0.03)}px; }
@@ -201,22 +203,56 @@ ${audio}
   <script>
   window.__timelines = window.__timelines || {};
   (function () {
-    var tl = gsap.timeline({ paused: true });
-    var per = ${sceneSeconds};
-    var scenes = document.querySelectorAll(".scene");
-    tl.to("#accentbar", { width: "100%", duration: ${duration}, ease: "none" }, 0);
-    scenes.forEach(function (el, i) {
-      var at = i * per;
-      var line = el.querySelector(".line");
-      tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "${theme.ease}" }, at);
-      tl.fromTo(line,
-        { y: ${Math.round(height * 0.05)}, scale: 0.94, opacity: 0 },
-        { y: 0, scale: 1, opacity: 1, duration: 0.9, ease: "${theme.ease}" }, at);
-      tl.to(line, { scale: 1.03, duration: Math.max(0.1, per - 1.4), ease: "none" }, at + 0.9);
-      tl.to(el, { opacity: 0, duration: 0.5, ease: "power1.in" }, at + per - 0.5);
-    });
-    tl.totalDuration(${duration});
-    window.__timelines["goman-video"] = tl;
+    var TOTAL = ${duration};
+    var PER = ${sceneSeconds};
+    var sceneText = ${scenePayload};
+    var scenes = Array.prototype.slice.call(document.querySelectorAll(".scene"));
+    var progress = document.getElementById("accentbar");
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function renderAt(seconds) {
+      var time = clamp(Number(seconds) || 0, 0, TOTAL);
+      var index = Math.min(scenes.length - 1, Math.floor(time / PER));
+      var local = time - index * PER;
+      var fade = Math.min(1, local / 0.35, Math.max(0, (PER - local) / 0.35));
+
+      scenes.forEach(function (scene, i) {
+        scene.style.display = i === index ? "flex" : "none";
+        scene.style.opacity = i === index ? String(Math.max(0.01, fade)) : "0";
+        var line = scene.querySelector(".line");
+        if (line && i === index) {
+          var enter = clamp(local / 0.7, 0, 1);
+          line.style.opacity = String(Math.max(0.01, enter));
+          line.style.transform = "translateY(" + Math.round((1 - enter) * ${Math.round(height * 0.05)}) + "px) scale(" + (0.94 + enter * 0.06) + ")";
+        }
+      });
+      if (progress) progress.style.width = String((time / TOTAL) * 100) + "%";
+      document.documentElement.setAttribute("data-render-time", String(time));
+      document.documentElement.setAttribute("data-scene-text", sceneText[index] || "");
+      return time;
+    }
+
+    var currentTime = renderAt(0.001);
+    var timeline = {
+      seek: function (seconds) { currentTime = renderAt(seconds); return timeline; },
+      time: function (seconds) {
+        if (typeof seconds === "number") { currentTime = renderAt(seconds); return timeline; }
+        return currentTime;
+      },
+      progress: function (value) {
+        if (typeof value === "number") { currentTime = renderAt(value * TOTAL); return timeline; }
+        return currentTime / TOTAL;
+      },
+      duration: function () { return TOTAL; },
+      totalDuration: function () { return TOTAL; },
+      pause: function () { return timeline; }
+    };
+    window.__timelines["goman-video"] = timeline;
+    window.__renderAt = renderAt;
+    window.__HYPERFRAMES_READY__ = true;
   })();
   </script>
 </body>
