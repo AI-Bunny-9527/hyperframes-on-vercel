@@ -49,7 +49,7 @@ export type Look = {
   /** 標題字距 */
   tracking: string;
   /** 內文裝飾 */
-  decor: "bar" | "index" | "underline" | "dot" | "none";
+  decor: "bar" | "index" | "underline" | "dot" | "rule" | "none";
   /** 文字卡片外框 */
   card: "none" | "soft" | "solid" | "outline";
   /** 轉場 */
@@ -89,6 +89,16 @@ export const LOOKS: Record<string, Look> = {
   corporate_clean: { ...DEFAULT_LOOK, align: "left", decor: "index", card: "outline", transition: "slideLeft", weight: 700 },
   crypto_dark: { ...DEFAULT_LOOK, font: MONO, align: "left", decor: "index", card: "solid", transition: "rise", weight: 700, tracking: "0.02em" },
   sunset_warm: { ...DEFAULT_LOOK, align: "center", decor: "dot", card: "soft", transition: "blur", weight: 800 },
+  biennale_yellow: { ...DEFAULT_LOOK, font: SERIF, align: "left", decor: "rule", card: "none", transition: "fade", weight: 600, tracking: "-0.01em" },
+  blockframe: { ...DEFAULT_LOOK, font: SANS, align: "left", decor: "bar", card: "none", transition: "slideLeft", weight: 900, tracking: "-0.03em", upper: true },
+  blue_professional: { ...DEFAULT_LOOK, font: SANS, align: "left", decor: "rule", card: "none", transition: "fade", weight: 700, tracking: "-0.01em" },
+  bold_poster: { ...DEFAULT_LOOK, font: SERIF, align: "left", decor: "rule", card: "none", transition: "rise", weight: 800, tracking: "-0.02em" },
+  broadside: { ...DEFAULT_LOOK, font: SANS, align: "left", decor: "none", card: "none", transition: "slideLeft", weight: 900, tracking: "-0.035em", upper: true },
+  capsule: { ...DEFAULT_LOOK, font: SERIF, align: "center", decor: "dot", card: "none", transition: "zoom", weight: 700, tracking: "-0.01em" },
+  cartesian: { ...DEFAULT_LOOK, font: SERIF, align: "left", decor: "rule", card: "none", transition: "fade", weight: 400, tracking: "0" },
+  cobalt_grid: { ...DEFAULT_LOOK, font: SERIF, align: "left", decor: "index", card: "none", transition: "rise", weight: 600, tracking: "-0.01em" },
+  coral: { ...DEFAULT_LOOK, font: SANS, align: "left", decor: "bar", card: "none", transition: "slideLeft", weight: 900, tracking: "-0.02em", upper: true },
+  creative_mode: { ...DEFAULT_LOOK, font: SANS, align: "left", decor: "bar", card: "none", transition: "zoom", weight: 900, tracking: "-0.03em", upper: true },
 };
 
 export function lookFor(style: string | undefined): Look {
@@ -171,7 +181,7 @@ function decorMarkup(look: Look, index: number): string {
   if (look.decor === "index") return `<div class="index">${num}</div>`;
   if (look.decor === "bar") return `<div class="bar"></div>`;
   if (look.decor === "dot") return `<div class="dot"></div>`;
-  if (look.decor === "underline") return `<div class="rule"></div>`;
+  if (look.decor === "underline" || look.decor === "rule") return `<div class="rule"></div>`;
   return "";
 }
 
@@ -323,7 +333,7 @@ export async function buildComposition(args: VideoPayload) {
     font-size:${Math.round(34 * scale)}px; font-weight:700; }
   .headline { font-weight:${look.weight}; line-height:1.16; letter-spacing:${look.tracking};
     ${look.upper ? "text-transform:uppercase;" : ""}
-    text-shadow:0 ${Math.round(12 * scale)}px ${Math.round(40 * scale)}px rgba(0,0,0,.35); }
+    ${theme.dark ? `text-shadow:0 ${Math.round(12 * scale)}px ${Math.round(40 * scale)}px rgba(0,0,0,.35);` : ""} }
   .statement { font-weight:${look.weight}; line-height:1.24; letter-spacing:${look.tracking}; }
   .body { font-weight:${Math.max(500, look.weight - 200)}; line-height:1.38; }
   .index { font-size:${Math.round(112 * scale)}px; font-weight:900; color:var(--brand); opacity:.55;
