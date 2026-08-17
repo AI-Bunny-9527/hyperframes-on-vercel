@@ -3,7 +3,11 @@
 // 背景由 canvas 按時間 t 繪製，唔靠 requestAnimationFrame，
 // 所以 hyperframes 逐格 seek render 出嚟嘅畫面完全一致。
 
+import { EDITORIAL_THEMES, EDITORIAL_SCRIPT, type EditorialSpec } from "./editorial";
+
 export type Theme = {
+  /** 編輯／海報風格（有值就用 paper+ink 排版） */
+  editorial?: EditorialSpec;
   /** 背景漸變（由上到下） */
   gradient: [string, string];
   /** 流動色塊顏色 */
@@ -24,7 +28,7 @@ export type Theme = {
   dark: boolean;
 };
 
-export const THEMES: Record<string, Theme> = {
+const GRADIENT_THEMES: Record<string, Theme> = {
   financial_commentary: {
     gradient: ["#050B1B", "#0E1E3C"],
     blobs: ["#1D4ED8", "#0EA5E9", "#22D3EE"],
@@ -192,13 +196,19 @@ export const THEMES: Record<string, Theme> = {
   },
 };
 
+export const THEMES: Record<string, Theme> = { ...GRADIENT_THEMES, ...EDITORIAL_THEMES };
+
 export function themeFor(style: string | undefined): Theme {
   return THEMES[style || ""] ?? THEMES.financial_commentary;
 }
 
 /** 注入畫面嘅背景繪圖 script（純函數，靠 t 決定畫面） */
-export const BACKGROUND_SCRIPT = String.raw`
+export const BACKGROUND_SCRIPT = EDITORIAL_SCRIPT + String.raw`
 function makeBackground(canvas, theme, brandColor) {
+  if (theme.editorial) return makeEditorialBackground(canvas, theme, brandColor);
+  return makeGradientBackground(canvas, theme, brandColor);
+}
+function makeGradientBackground(canvas, theme, brandColor) {
   var ctx = canvas.getContext("2d");
   var W = canvas.width, H = canvas.height;
 
