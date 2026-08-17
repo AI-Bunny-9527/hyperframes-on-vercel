@@ -104,3 +104,78 @@ export async function fetchComponent(name: string): Promise<string> {
   cache.set(name, html);
   return html;
 }
+
+/** composition.ts 用嘅相容 API */
+export type PresetSlot = {
+  block: string;
+  component: string;
+  vars: (text: string, index: number, brand: string) => Record<string, unknown>;
+};
+
+export type PresetSlots = {
+  slots: PresetSlot[];
+  transitions: string[];
+  caption_style: string;
+};
+
+const DEFAULT_BLOCK = "gradient-mesh";
+const DEFAULT_TRANSITIONS = ["fade", "slide-left", "zoom-in"];
+
+export function getPresetSlots(
+  style: string | undefined,
+  spec?: {
+    blocks?: string[];
+    components?: string[];
+    transitions?: string[];
+    caption_style?: string;
+  },
+): PresetSlots {
+  const preset = slotsFor(style);
+  const base: SlotSpec[] = [preset.intro, ...preset.body, preset.outro];
+
+  const components = spec?.components?.length ? spec.components : undefined;
+  const blocks = spec?.blocks?.length ? spec.blocks : undefined;
+
+  const slots: PresetSlot[] = base.map((s, i) => ({
+    block: blocks ? blocks[i % blocks.length] : DEFAULT_BLOCK,
+    component: components ? components[i % components.length] : s.component,
+    vars: s.vars,
+  }));
+
+  return {
+    slots,
+    transitions: spec?.transitions?.length ? spec.transitions : DEFAULT_TRANSITIONS,
+    caption_style: spec?.caption_style || "clean",
+  };
+}
+
+/** 拎組件 HTML（registry 有就用，冇就交由呼叫方 fallback） */
+export async function fetchComponentHTML(name: string): Promise<string> {
+  return fetchComponent(name);
+}
+
+/** 背景 block：registry 未必有，攞唔到就 throw 由呼叫方 fallback */
+export async function fetchBlockHTML(name: string): Promise<string> {
+  return fetchComponent(name);
+}
+
+/** 將長文字切成最多 maxScenes 段 */
+export function splitScenes(text: string, maxScenes: number): string[] {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) return [""];
+
+  const sentences = clean
+    .split(/(?<=[。！？!?；;\.])\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const parts = sentences.length ? sentences : [clean];
+  const n = Math.max(1, Math.min(maxScenes, parts.length));
+  const perScene = Math.ceil(parts.length / n);
+
+  const scenes: string[] = [];
+  for (let i = 0; i < parts.length; i += perScene) {
+    scenes.push(parts.slice(i, i + perScene).join(" "));
+  }
+  return scenes.slice(0, Math.max(1, maxScenes));
+}
