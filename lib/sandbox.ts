@@ -109,10 +109,7 @@ async function restoreOrCreate(): Promise<Sandbox> {
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (process.env.VERCEL_ENV === "production") {
-        throw new Error(`snapshot restore failed in production: ${msg}`);
-      }
-      console.warn(`[sandbox] snapshot restore failed in dev, falling back: ${msg}`);
+      console.warn(`[sandbox] snapshot restore failed, falling back to fresh setup: ${msg}`);
     }
   }
 
