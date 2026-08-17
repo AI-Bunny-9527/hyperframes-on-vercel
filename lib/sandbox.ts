@@ -121,7 +121,10 @@ async function restoreOrCreate(): Promise<Sandbox> {
   return sandbox;
 }
 
-export async function renderInSandbox(compositionFiles: ReadonlyArray<{ rel: string; content: Buffer }>): Promise<RenderResult> {
+export async function renderInSandbox(
+  compositionFiles: ReadonlyArray<{ rel: string; content: Buffer }>,
+  audio?: { content: Buffer; volume: number; ext: string },
+): Promise<RenderResult> {
   const t0 = Date.now();
   const sandbox = await restoreOrCreate();
 
@@ -142,13 +145,38 @@ export async function renderInSandbox(compositionFiles: ReadonlyArray<{ rel: str
       ],
     });
 
-    const mp4 = await sandbox.readFileToBuffer({ path: "out.mp4" });
-    if (!mp4) throw new Error("render produced no out.mp4");
+    let output = "out.mp4";
+
+    if (audio) {
+      const audioPath = `bgm.${audio.ext}`;
+      await sandbox.writeFiles([{ path: audioPath, content: audio.content }]);
+      await runSandboxCommand(sandbox, "mux bgm", {
+        cmd: "ffmpeg",
+        args: [
+          "-y",
+          "-i", "out.mp4",
+          "-stream_loop", "-1",
+          "-i", audioPath,
+          "-filter_complex", `[1:a]volume=${audio.volume}[a]`,
+          "-map", "0:v",
+          "-map", "[a]",
+          "-c:v", "copy",
+          "-c:a", "aac",
+          "-shortest",
+          "final.mp4",
+        ],
+      });
+      output = "final.mp4";
+    }
+
+    const mp4 = await sandbox.readFileToBuffer({ path: output });
+    if (!mp4) throw new Error(`render produced no ${output}`);
     return { mp4, durationMs: Date.now() - t0 };
   } finally {
     await sandbox.stop().catch(() => {});
   }
 }
+
 
 export async function collectFiles(
   root: string,
