@@ -46,6 +46,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[create-snapshot] FAILED", err);
-  process.exit(1);
+  // Snapshot creation is only a warm-start optimisation. Never fail the build.
+  console.warn("[create-snapshot] skipped:", err instanceof Error ? err.message : err);
 });
