@@ -8,8 +8,19 @@ import { renderInSandbox } from "../../../lib/sandbox";
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "content-type, authorization",
+  "Access-Control-Max-Age": "86400",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
 function unauthorized() {
-  return Response.json({ error: "unauthorized" }, { status: 401 });
+  return Response.json({ error: "unauthorized" }, { status: 401, headers: CORS_HEADERS });
 }
 
 export async function POST(request: Request) {
@@ -42,11 +53,11 @@ export async function POST(request: Request) {
     } = body;
 
     if (test === true) {
-      return Response.json({ ok: true, url: "" });
+      return Response.json({ ok: true, url: "" }, { headers: CORS_HEADERS });
     }
 
     if (!text || typeof text !== "string" || !text.trim()) {
-      return Response.json({ error: "text is required" }, { status: 400 });
+      return Response.json({ error: "text is required" }, { status: 400, headers: CORS_HEADERS });
     }
 
     const composition = await buildComposition({
@@ -104,12 +115,12 @@ export async function POST(request: Request) {
       width: composition.width,
       height: composition.height,
       render_ms: durationMs,
-    });
+    }, { headers: CORS_HEADERS });
   } catch (e) {
     console.error("[render] failed", e);
     return Response.json(
       { error: "render_failed", message: (e as Error).message },
-      { status: 500 }
+      { status: 500, headers: CORS_HEADERS }
     );
   }
 }
