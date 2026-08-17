@@ -321,23 +321,7 @@ function makeEditorialBackground(canvas, theme, brandColor) {
   }
 
   function drawRules() {
-    if (!e.rules) return;
-    var m = S * 0.055;
-    ctx.strokeStyle = "rgba(0,0,0,0.22)";
-    ctx.lineWidth = Math.max(1, S / 900);
-    ctx.beginPath();
-    ctx.moveTo(m, m); ctx.lineTo(W - m, m);
-    ctx.moveTo(m, H - m); ctx.lineTo(W - m, H - m);
-    ctx.stroke();
-    var fs = Math.round(S * 0.0175);
-    ctx.font = "600 " + fs + "px Inter, Helvetica, Arial, sans-serif";
-    ctx.fillStyle = theme.inkMuted;
-    ctx.textBaseline = "alphabetic";
-    if (e.metaLeft) ctx.fillText(e.metaLeft, m, m - fs * 0.7);
-    if (e.metaRight) {
-      var w = ctx.measureText(e.metaRight).width;
-      ctx.fillText(e.metaRight, W - m - w, m - fs * 0.7);
-    }
+    // 頂／底髮絲線同 meta 小字改由 HTML 層繪製（更清晰），呢度唔再重覆畫。
   }
 
   function drawGrain(t) {
