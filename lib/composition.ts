@@ -249,6 +249,52 @@ function clipMarkup(params: {
     </div>`;
 }
 
+/** Hyperframes 編輯風格版面：頂／底 meta 線、超大標題、重點字上色、細小說明段。 */
+function editorialClipMarkup(params: {
+  id: string;
+  text: string;
+  index: number;
+  total: number;
+  start: number;
+  duration: number;
+  brand: string;
+  look: Look;
+  scale: number;
+  metaLeft: string;
+  metaRight: string;
+}) {
+  const { id, text, index, total, start, duration, brand, look, scale, metaLeft, metaRight } = params;
+  const len = text.length;
+  const isTitle = index === 0;
+  const base = isTitle ? 150 : 122;
+  const size = Math.round(fitSize(base, len) * scale);
+
+  // 最後一段（句號前）用重點色，模仿 Hyperframes 海報嘅撞色字
+  const m = text.match(/^(.*?)([^\s，,。！？!?、]{2,14}[。．.!！?？]?)$/);
+  const head = escapeHtml(m ? m[1] : text);
+  const accent = escapeHtml(m ? m[2] : "");
+
+  const num = String(index + 1).padStart(2, "0");
+  const foot = escapeHtml(brand || metaLeft);
+
+  return `
+    <div class="clip ed" id="${id}" data-start="${start.toFixed(3)}" data-duration="${duration.toFixed(3)}"
+      style="position:absolute;inset:0;opacity:0;">
+      <div class="ed-meta ed-top">
+        <span>${escapeHtml(metaLeft)}</span><span>${escapeHtml(metaRight)}</span>
+      </div>
+      <div class="ed-body">
+        <div class="ed-head reveal" style="font-size:${size}px">${head}${
+          accent ? `<span class="ed-accent">${accent}</span>` : ""
+        }</div>
+        <div class="ed-note">${escapeHtml(brand ? `${brand} — Frame ${num} / ${String(total).padStart(2, "0")}` : `Frame ${num} / ${String(total).padStart(2, "0")}`)}</div>
+      </div>
+      <div class="ed-meta ed-bottom">
+        <span>${foot}</span><span>${num} / ${String(total).padStart(2, "0")}</span>
+      </div>
+    </div>`;
+}
+
 export async function buildComposition(args: VideoPayload) {
   const dims = DIMENSIONS[args.aspectRatio] ?? DIMENSIONS["16:9"];
   const paceSeconds = PACE_SECONDS[args.pace] ?? 4;
@@ -259,7 +305,9 @@ export async function buildComposition(args: VideoPayload) {
   const theme = themeFor(args.style);
   const look = lookFor(args.style);
   const brandColor = args.brand_color || theme.blobs[0];
-  const subtitles = args.subtitles !== false;
+  const editorialSpec = (theme as { editorial?: { metaLeft?: string; metaRight?: string } }).editorial;
+  const isEditorial = !!editorialSpec;
+  const subtitles = args.subtitles !== false && !isEditorial;
 
   const cleanTitle = args.title ? cleanLine(args.title) : "";
   if (cleanTitle) sceneTexts.unshift(cleanTitle);
@@ -272,7 +320,21 @@ export async function buildComposition(args: VideoPayload) {
 
   const clipHTML = sceneTexts
     .map((body, i) =>
-      clipMarkup({
+      isEditorial
+        ? editorialClipMarkup({
+            id: `scene-${i + 1}`,
+            text: body,
+            index: i,
+            total: sceneTexts.length,
+            start: i * sceneSeconds,
+            duration: sceneSeconds,
+            brand,
+            look,
+            scale,
+            metaLeft: editorialSpec?.metaLeft ?? "FRAME SYSTEM — VOL. 01",
+            metaRight: editorialSpec?.metaRight ?? "2026",
+          })
+        : clipMarkup({
         id: `scene-${i + 1}`,
         layout: layoutFor(i, sceneTexts.length),
         text: body,
@@ -358,6 +420,26 @@ export async function buildComposition(args: VideoPayload) {
     padding:${Math.round(16 * scale)}px ${Math.round(30 * scale)}px;
     border-radius:${Math.round(14 * scale)}px; font-size:${Math.round(38 * scale)}px;
     font-weight:600; line-height:1.3; text-align:center; max-width:100%; }
+  .ed-meta { position:absolute; left:${Math.round(96 * scale)}px; right:${Math.round(96 * scale)}px;
+    display:flex; justify-content:space-between; align-items:center;
+    font-family:${SANS}; font-size:${Math.round(22 * scale)}px; font-weight:600;
+    letter-spacing:.22em; text-transform:uppercase; color:var(--ink-muted); }
+  .ed-top { top:${Math.round(74 * scale)}px; padding-bottom:${Math.round(14 * scale)}px;
+    border-bottom:1px solid rgba(0,0,0,.20); }
+  .ed-bottom { bottom:${Math.round(74 * scale)}px; padding-top:${Math.round(14 * scale)}px;
+    border-top:1px solid rgba(0,0,0,.20); }
+  .ed-body { position:absolute; left:${Math.round(96 * scale)}px; right:${Math.round(96 * scale)}px;
+    top:50%; transform:translateY(-50%);
+    ${look.align === "center" ? "text-align:center;" : "text-align:left;"} }
+  .ed-head { font-family:${look.font}; font-weight:${look.weight}; line-height:1.05;
+    letter-spacing:${look.tracking}; ${look.upper ? "text-transform:uppercase;" : ""}
+    max-width:${look.align === "center" ? "100%" : "76%"}; text-shadow:none; }
+  .ed-accent { color:var(--brand); }
+  .ed-note { margin-top:${Math.round(34 * scale)}px; font-family:${SANS};
+    font-size:${Math.round(26 * scale)}px; font-weight:500; line-height:1.5;
+    letter-spacing:.02em; color:var(--ink-muted);
+    max-width:${look.align === "center" ? "100%" : "46%"};
+    ${look.align === "center" ? "margin-left:auto;margin-right:auto;" : ""} }
 </style>
 </head>
 <body>
