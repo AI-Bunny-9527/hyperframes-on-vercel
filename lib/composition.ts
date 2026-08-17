@@ -266,7 +266,7 @@ function editorialClipMarkup(params: {
   const { id, text, index, total, start, duration, brand, look, scale, metaLeft, metaRight } = params;
   const len = text.length;
   const isTitle = index === 0;
-  const base = isTitle ? 150 : 122;
+  const base = isTitle ? 210 : 156;
   const size = Math.round(fitSize(base, len) * scale);
 
   // 最後一段（句號前）用重點色，模仿 Hyperframes 海報嘅撞色字
