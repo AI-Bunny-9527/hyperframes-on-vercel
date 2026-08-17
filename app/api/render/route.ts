@@ -43,6 +43,8 @@ export async function POST(request: Request) {
       duration_seconds = 30,
       pace = "normal",
       bgm,
+      bgm_volume,
+      title,
       hyperframes,
       brand_name,
       brand_color,
@@ -68,6 +70,8 @@ export async function POST(request: Request) {
       durationSeconds: typeof duration_seconds === "number" ? duration_seconds : 30,
       pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
       bgm: typeof bgm === "string" ? bgm : undefined,
+      bgmVolume: typeof bgm_volume === "number" ? bgm_volume : undefined,
+      title: typeof title === "string" ? title : undefined,
       hyperframes:
         hyperframes && typeof hyperframes === "object" && !Array.isArray(hyperframes)
           ? (hyperframes as {
@@ -102,7 +106,22 @@ export async function POST(request: Request) {
       })),
     ];
 
-    const { mp4, durationMs } = await renderInSandbox(files);
+    let audio: { content: Buffer; volume: number; ext: string } | undefined;
+    if (typeof bgm === "string" && bgm.startsWith("http")) {
+      try {
+        const res = await fetch(bgm);
+        if (!res.ok) throw new Error(`bgm download failed (${res.status})`);
+        const buf = Buffer.from(await res.arrayBuffer());
+        const ext = (bgm.split("?")[0].split(".").pop() || "mp3").toLowerCase().slice(0, 4);
+        const volume =
+          typeof bgm_volume === "number" && bgm_volume >= 0 && bgm_volume <= 2 ? bgm_volume : 0.25;
+        audio = { content: buf, volume, ext: /^[a-z0-9]+$/.test(ext) ? ext : "mp3" };
+      } catch (err) {
+        console.warn("[render] bgm skipped", err);
+      }
+    }
+
+    const { mp4, durationMs } = await renderInSandbox(files, audio);
 
     const blob = await put(`renders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`, mp4, {
       access: "public",
