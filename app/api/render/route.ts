@@ -4,6 +4,7 @@
 import { put } from "@vercel/blob";
 import { buildComposition } from "../../../lib/composition";
 import { renderInSandbox } from "../../../lib/sandbox";
+import { collectRender, startRender } from "../../../lib/asyncRender";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
@@ -33,6 +34,24 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as Record<string, unknown>;
+
+    // Poll an already-started detached render.
+    if (body.mode === "status") {
+      const status = await collectRender({
+        sandboxId: String(body.sandboxId || ""),
+        cmdId: String(body.cmdId || ""),
+        output: String(body.output || "out.mp4"),
+      });
+      if (status.status !== "done") {
+        return Response.json(status, { headers: CORS_HEADERS });
+      }
+      const doneBlob = await put(
+        `renders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`,
+        status.mp4,
+        { access: "public", contentType: "video/mp4" },
+      );
+      return Response.json({ status: "done", url: doneBlob.url }, { headers: CORS_HEADERS });
+    }
 
     const {
       text,
@@ -119,6 +138,16 @@ export async function POST(request: Request) {
       } catch (err) {
         console.warn("[render] bgm skipped", err);
       }
+    }
+
+    // Async mode: start the render and return immediately; the client polls
+    // with mode:"status" so長片唔會受 serverless timeout 限制.
+    if (body.mode === "start") {
+      const job = await startRender(files, audio);
+      return Response.json(
+        { ...job, status: "running", duration: composition.duration },
+        { headers: CORS_HEADERS },
+      );
     }
 
     const { mp4, durationMs } = await renderInSandbox(files, audio);
