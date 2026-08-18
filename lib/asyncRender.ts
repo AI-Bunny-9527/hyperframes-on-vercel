@@ -41,14 +41,18 @@ export async function startRender(
   const sandbox = await newSandbox();
   await sandbox.writeFiles(files.map(({ rel, content }) => ({ path: `composition/${rel}`, content })));
 
-  let script = "set -e\nnpx --no-install hyperframes render composition -o out.mp4 --workers auto\n";
+  let body = "npx --no-install hyperframes render composition -o out.mp4 --workers auto\n";
   let output = "out.mp4";
   if (audio) {
     const audioPath = `bgm.${audio.ext}`;
     await sandbox.writeFiles([{ path: audioPath, content: audio.content }]);
-    script += `ffmpeg -y -i out.mp4 -stream_loop -1 -i ${audioPath} -filter_complex "[1:a]volume=${audio.volume}[a]" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest final.mp4\n`;
+    body += `ffmpeg -y -i out.mp4 -stream_loop -1 -i ${audioPath} -filter_complex "[1:a]volume=${audio.volume}[a]" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest final.mp4\n`;
     output = "final.mp4";
   }
+
+  // Write an explicit status file: detached commands do not reliably report
+  // exitCode when fetched later by id, so the sandbox filesystem is the source of truth.
+  const script = `rm -f render.status render.log\n{\nset -e\n${body}} > render.log 2>&1\necho $? > render.status\n`;
 
   const cmd = await sandbox.runCommand({ cmd: "bash", args: ["-lc", script], detached: true });
   return { sandboxId: sandbox.sandboxId, cmdId: cmd.cmdId, output };
@@ -59,23 +63,42 @@ export type RenderStatus =
   | { status: "done"; mp4: Buffer }
   | { status: "failed"; message: string };
 
+async function readText(sandbox: Sandbox, path: string): Promise<string | null> {
+  try {
+    const buf = await sandbox.readFileToBuffer({ path });
+    return buf ? buf.toString("utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function collectRender(params: {
   sandboxId: string;
   cmdId: string;
   output: string;
 }): Promise<RenderStatus> {
   const sandbox = await Sandbox.get({ sandboxId: params.sandboxId });
-  const cmd = await sandbox.getCommand(params.cmdId);
-  if (cmd.exitCode === null || cmd.exitCode === undefined) return { status: "running" };
 
-  if (cmd.exitCode !== 0) {
-    const stderr = await cmd.stderr().catch(() => "");
+  const statusText = await readText(sandbox, "render.status");
+  if (statusText === null) return { status: "running" };
+
+  const exitCode = Number(statusText.trim());
+  if (exitCode !== 0) {
+    const log = (await readText(sandbox, "render.log")) || "";
     await sandbox.stop().catch(() => {});
-    return { status: "failed", message: stderr.slice(-1200) || `render exited ${cmd.exitCode}` };
+    return { status: "failed", message: log.slice(-1500) || `render exited ${exitCode}` };
   }
 
-  const mp4 = await sandbox.readFileToBuffer({ path: params.output });
+  let mp4: Buffer | null = null;
+  try {
+    mp4 = await sandbox.readFileToBuffer({ path: params.output });
+  } catch {
+    mp4 = null;
+  }
+  const log = mp4 ? "" : (await readText(sandbox, "render.log")) || "";
   await sandbox.stop().catch(() => {});
-  if (!mp4) return { status: "failed", message: `render produced no ${params.output}` };
+  if (!mp4) {
+    return { status: "failed", message: log.slice(-1500) || `render produced no ${params.output}` };
+  }
   return { status: "done", mp4 };
 }
