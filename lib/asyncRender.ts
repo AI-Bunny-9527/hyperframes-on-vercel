@@ -52,7 +52,7 @@ export async function startRender(
 
   // Write an explicit status file: detached commands do not reliably report
   // exitCode when fetched later by id, so the sandbox filesystem is the source of truth.
-  const script = `rm -f render.status render.log\n{\nset -e\n${body}} > render.log 2>&1\necho $? > render.status\n`;
+  const script = `rm -f render.status render.log\nset +e\n(\nset -e\n${body}) > render.log 2>&1\nexit_code=$?\nprintf '%s\\n' "$exit_code" > render.status\nexit "$exit_code"\n`;
 
   const cmd = await sandbox.runCommand({ cmd: "bash", args: ["-lc", script], detached: true });
   return { sandboxId: sandbox.sandboxId, cmdId: cmd.cmdId, output };
