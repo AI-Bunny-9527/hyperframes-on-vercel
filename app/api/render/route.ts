@@ -77,10 +77,10 @@ export async function POST(request: Request) {
     } = body;
 
     if (test === true) {
-      return Response.json({ ok: true url: "" }, { headers: CORS_HEADERS });
+      return Response.json({ ok: true, url: "" }, { headers: CORS_HEADERS });
     }
 
-    if (!text || typeof text !== "string"|| !text.trim()) {
+    if (!text || typeof text !== "string" || !text.trim()) {
       return Response.json({ error: "text is required" }, { status: 400, headers: CORS_HEADERS });
     }
 
@@ -173,7 +173,7 @@ export async function POST(request: Request) {
 
     const audio = tracks.length > 0 ? tracks : undefined;
 
-    console.log("[render] audio tracks", tracks.map((t) => ({ name: t.name, volume: t.volume }));
+    console.log("[render] audio tracks", tracks.map((t) => ({ name: t.name, volume: t.volume })));
 
     // Async mode: start the renderer and return immediately; the client polls
     // with mode:"status" so 長片唔會受 serverless timeout 限制.
