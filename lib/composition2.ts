@@ -6,20 +6,68 @@ type BaseArgs = Parameters<typeof baseComposition>[0];
 type BaseResult = Awaited<ReturnType<typeof baseComposition>>;
 type ExtendedArgs = BaseArgs & { textScale?: number };
 
+function fitScript(target: number): string {
+  return `
+<script>
+(function(){
+  var TARGET=${target.toFixed(3)};
+  function fit(){
+    var stage=document.getElementById("stage")||document.body;
+    var H=stage.clientHeight||1080;
+    var maxH=H*Math.min(0.90, TARGET+0.20);
+    var clips=document.querySelectorAll(".clip");
+    for(var c=0;c<clips.length;c++){
+      (function(clip){
+        var box=clip.querySelector(".ed-body")||clip.querySelector(".card")||clip.querySelector(".stack");
+        if(!box) return;
+        var nodes=[box].concat(Array.prototype.slice.call(box.querySelectorAll("*")));
+        var els=[],base=[];
+        for(var i=0;i<nodes.length;i++){
+          var fs=parseFloat(window.getComputedStyle(nodes[i]).fontSize);
+          if(fs>0){ els.push(nodes[i]); base.push(fs); }
+        }
+        if(!els.length) return;
+        function set(f){ for(var i=0;i<els.length;i++){ els[i].style.fontSize=Math.max(10, base[i]*f).toFixed(1)+"px"; } }
+        function bad(){
+          if(box.getBoundingClientRect().height>maxH) return true;
+          for(var i=0;i<els.length;i++){ if(els[i].scrollWidth>els[i].clientWidth+2) return true; }
+          return false;
+        }
+        set(1);
+        if(!bad()) return;
+        var lo=0.10, hi=1;
+        for(var k=0;k<26;k++){ var m=(lo+hi)/2; set(m); if(bad()) hi=m; else lo=m; }
+        set(lo);
+      })(clips[c]);
+    }
+  }
+  function run(){ try{ fit(); }catch(e){} }
+  if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", run); } else { run(); }
+  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(run); }
+  setTimeout(run, 300);
+  window.__fitText = run;
+})();
+<\/script>`;
+}
+
 function applyScale(html: string, requestedScale: number, aspectRatio: string): string {
   // The base composition already multiplies all typography by width / 1920.
-  // Compensate for that internal scale so a chosen size has the same visual meaning in 9:16, 1:1 and 16:9.
   const width = aspectRatio === "9:16" || aspectRatio === "1:1" || aspectRatio === "4:5" ? 1080 : 1920;
   const baseViewportScale = width / 1920;
   const factor = requestedScale / baseViewportScale;
-  if (Math.abs(factor - 1) < 0.01) return html;
-  let out = html.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
-    `font-size:${Math.max(12, Math.round(Number(value) * factor))}px`,
-  );
-  // Large text needs the copy block to use the full frame, otherwise it stays visually small.
-  if (factor > 1.2) {
-    out = out.replace(/max-width:\s*\d+(?:\.\d+)?%/g, "max-width:100%");
+  let out = html;
+  if (Math.abs(factor - 1) >= 0.01) {
+    out = out.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
+      `font-size:${Math.max(12, Math.round(Number(value) * factor))}px`,
+    );
+    if (factor > 1.2) {
+      out = out.replace(/max-width:\s*\d+(?:\.\d+)?%/g, "max-width:100%");
+    }
   }
+  // Chosen size = share of the frame the copy should occupy; auto-shrink so it never overflows.
+  const target = Math.min(0.85, Math.max(0.18, requestedScale / 5));
+  const script = fitScript(target);
+  out = out.includes("</body>") ? out.replace("</body>", `${script}\n</body>`) : out + script;
   return out;
 }
 
