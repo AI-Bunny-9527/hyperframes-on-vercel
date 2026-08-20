@@ -77,10 +77,10 @@ export async function POST(request: Request) {
     } = body;
 
     if (test === true) {
-      return Response.json({ ok: true, url: "" }, { headers: CORS_HEADERS });
+      return Response.json({ ok: true url: "" }, { headers: CORS_HEADERS });
     }
 
-    if (!text || typeof text !== "string" || !text.trim()) {
+    if (!text || typeof text !== "string"|| !text.trim()) {
       return Response.json({ error: "text is required" }, { status: 400, headers: CORS_HEADERS });
     }
 
@@ -99,7 +99,7 @@ export async function POST(request: Request) {
       pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
       bgm: typeof bgm === "string" ? bgm : undefined,
       bgmVolume: typeof bgm_volume === "number" ? bgm_volume : undefined,
-      title: typeof title === "string" ? title : undefined,
+      title: typeof narration_audio === "string" && narration_audio ? undefined : typeof title === "string" ? title : undefined,
       hyperframes:
         hyperframes && typeof hyperframes === "object" && !Array.isArray(hyperframes)
           ? (hyperframes as {
@@ -173,10 +173,10 @@ export async function POST(request: Request) {
 
     const audio = tracks.length > 0 ? tracks : undefined;
 
-    console.log("[render] audio tracks", tracks.map((t) => ({ name: t.name, volume: t.volume })));
+    console.log("[render] audio tracks", tracks.map((t) => ({ name: t.name, volume: t.volume }));
 
-    // Async mode: start the render and return immediately; the client polls
-    // with mode:"status" so長片唔會受 serverless timeout 限制.
+    // Async mode: start the renderer and return immediately; the client polls
+    // with mode:"status" so 長片唔會受 serverless timeout 限制.
     if (body.mode === "start") {
       const job = await startRender(files, audio);
       return Response.json(
