@@ -4,7 +4,7 @@
 //  2) 按每場字數重新分配時間，避免長句字幕未讀完就切走。
 import { buildComposition as baseComposition } from "./composition";
 
-type AnyArgs = Record<string, unknown>;
+type BaseResult = Awaited<ReturnType<typeof baseComposition>>;
 
 function applyScale(html: string, scale: number): string {
   if (!scale || Math.abs(scale - 1) < 0.01) return html;
@@ -21,7 +21,6 @@ function retime(html: string, total: number): string {
   while ((m = re.exec(html))) clips.push({ match: m[0], cls: m[1], id: m[2] });
   if (clips.length < 2 || !total) return html;
 
-  // 用每場嘅純文字長度做權重
   const weights = clips.map((c) => {
     const start = html.indexOf(c.match);
     const nextIdx = clips
@@ -50,11 +49,10 @@ function retime(html: string, total: number): string {
   return out;
 }
 
-export async function buildComposition(args: AnyArgs) {
-  const result = await (baseComposition as unknown as (a: AnyArgs) => Promise<Record<string, unknown>>)(args);
-  const scale = Math.min(2, Math.max(0.6, Number(args.textScale) || 1));
-  let html = String(result.html || "");
-  html = applyScale(html, scale);
+export async function buildComposition(args: Parameters<typeof baseComposition>[0] & { textScale?: number }): Promise<BaseResult> {
+  const result = await baseComposition(args);
+  const scale = Math.min(2, Math.max(0.6, Number((args as { textScale?: number }).textScale) || 1));
+  let html = applyScale(String(result.html || ""), scale);
   html = retime(html, Number(result.duration) || 0);
   console.log("[composition2] textScale", scale);
   return { ...result, html };
