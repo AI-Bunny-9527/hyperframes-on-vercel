@@ -1,5 +1,6 @@
 // lib/composition2.ts
-// Applies a viewport-independent text scale and retimes scenes from their actual visible text.
+// Fits each scene's primary copy to an explicit share of the frame height and
+// retimes scenes from their actual visible text.
 import { buildComposition as baseComposition } from "./composition";
 
 type BaseArgs = Parameters<typeof baseComposition>[0];
@@ -11,64 +12,78 @@ function fitScript(target: number): string {
 <script>
 (function(){
   var TARGET=${target.toFixed(3)};
+  window.__HYPERFRAMES_READY__=false;
   function fit(){
     var stage=document.getElementById("stage")||document.body;
     var H=stage.clientHeight||1080;
-    var maxH=H*Math.min(0.90, TARGET+0.20);
+    var targetH=H*TARGET;
     var clips=document.querySelectorAll(".clip");
     for(var c=0;c<clips.length;c++){
       (function(clip){
-        var box=clip.querySelector(".ed-body")||clip.querySelector(".card")||clip.querySelector(".stack");
-        if(!box) return;
-        var nodes=[box].concat(Array.prototype.slice.call(box.querySelectorAll("*")));
-        var els=[],base=[];
-        for(var i=0;i<nodes.length;i++){
-          var fs=parseFloat(window.getComputedStyle(nodes[i]).fontSize);
-          if(fs>0){ els.push(nodes[i]); base.push(fs); }
+        var primary=clip.querySelector(".ed-head,.headline,.statement,.body,.quote");
+        if(!primary) return;
+        var original=parseFloat(primary.getAttribute("data-fit-base")||"");
+        if(!original){
+          original=parseFloat(window.getComputedStyle(primary).fontSize)||48;
+          primary.setAttribute("data-fit-base",String(original));
         }
-        if(!els.length) return;
-        function set(f){ for(var i=0;i<els.length;i++){ els[i].style.fontSize=Math.max(10, base[i]*f).toFixed(1)+"px"; } }
-        function bad(){
-          if(box.getBoundingClientRect().height>maxH) return true;
-          for(var i=0;i<els.length;i++){ if(els[i].scrollWidth>els[i].clientWidth+2) return true; }
-          return false;
+        var originalLine=parseFloat(primary.getAttribute("data-fit-line")||"");
+        if(!originalLine){
+          originalLine=parseFloat(window.getComputedStyle(primary).lineHeight)||original*1.2;
+          primary.setAttribute("data-fit-line",String(originalLine));
         }
-        set(1);
-        if(!bad()) return;
-        var lo=0.10, hi=1;
-        for(var k=0;k<26;k++){ var m=(lo+hi)/2; set(m); if(bad()) hi=m; else lo=m; }
+        primary.style.maxWidth="100%";
+        primary.style.overflowWrap="anywhere";
+        primary.style.wordBreak="break-word";
+        function set(f){
+          primary.style.fontSize=Math.max(10,original*f).toFixed(2)+"px";
+          primary.style.lineHeight=Math.max(10,originalLine*f).toFixed(2)+"px";
+        }
+        function measure(){
+          var rect=primary.getBoundingClientRect();
+          return {height:rect.height};
+        }
+        // Search in both directions. The old fitter only shrank text, which
+        // made short scenes stay tiny even when 50% was selected.
+        var lo=0.05,hi=12;
+        for(var k=0;k<30;k++){
+          var mid=(lo+hi)/2;
+          set(mid);
+          var size=measure();
+          if(size.height>targetH) hi=mid; else lo=mid;
+        }
         set(lo);
+        // Line wrapping changes in whole-line jumps. Use line-height only for
+        // the small residual gap so the measured copy block reaches TARGET
+        // without crossing into an extra line or distorting glyphs.
+        var fitted=measure();
+        if(fitted.height>0&&fitted.height<targetH){
+          var currentLine=parseFloat(window.getComputedStyle(primary).lineHeight)||originalLine*lo;
+          primary.style.lineHeight=(currentLine*(targetH/fitted.height)).toFixed(2)+"px";
+        }
+        primary.setAttribute("data-fit-occupancy",(measure().height/H).toFixed(4));
       })(clips[c]);
     }
   }
-  function run(){ try{ fit(); }catch(e){} }
-  if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded", run); } else { run(); }
-  if(document.fonts && document.fonts.ready){ document.fonts.ready.then(run); }
-  setTimeout(run, 300);
+  function ready(){
+    try{ fit(); }finally{ window.__HYPERFRAMES_READY__=true; }
+  }
+  function run(){
+    if(document.fonts&&document.fonts.ready){ document.fonts.ready.then(ready); }
+    else{ ready(); }
+  }
+  if(document.readyState==="loading"){ document.addEventListener("DOMContentLoaded",run); } else { run(); }
   window.__fitText = run;
 })();
 <\/script>`;
 }
 
-function applyScale(html: string, requestedScale: number, aspectRatio: string): string {
-  // The base composition already multiplies all typography by width / 1920.
-  const width = aspectRatio === "9:16" || aspectRatio === "1:1" || aspectRatio === "4:5" ? 1080 : 1920;
-  const baseViewportScale = width / 1920;
-  const factor = requestedScale / baseViewportScale;
-  let out = html;
-  if (Math.abs(factor - 1) >= 0.01) {
-    out = out.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
-      `font-size:${Math.max(12, Math.round(Number(value) * factor))}px`,
-    );
-    if (factor > 1.2) {
-      out = out.replace(/max-width:\s*\d+(?:\.\d+)?%/g, "max-width:100%");
-    }
-  }
-  // Chosen size = share of the frame the copy should occupy; auto-shrink so it never overflows.
-  const target = Math.min(0.85, Math.max(0.18, requestedScale / 5));
+function applyScale(html: string, requestedScale: number): string {
+  const legacyMapped = requestedScale > 1 ? requestedScale / 5 : requestedScale;
+  const target = Math.min(0.75, Math.max(0.15, legacyMapped));
   const script = fitScript(target);
-  out = out.includes("</body>") ? out.replace("</body>", `${script}\n</body>`) : out + script;
-  return out;
+  const gated = html.replace("window.__HYPERFRAMES_READY__ = true;", "window.__HYPERFRAMES_READY__ = false;");
+  return gated.includes("</body>") ? gated.replace("</body>", `${script}\n</body>`) : gated + script;
 }
 
 function visibleTextLength(chunk: string): number {
@@ -114,8 +129,8 @@ function retime(html: string, total: number): string {
 
 export async function buildComposition(args: ExtendedArgs): Promise<BaseResult> {
   const result = await baseComposition(args);
-  const scale = Math.min(3.5, Math.max(0.6, Number(args.textScale) || 1));
-  let html = applyScale(String(result.html || ""), scale, args.aspectRatio);
+  const scale = Math.min(3.5, Math.max(0.15, Number(args.textScale) || 0.35));
+  let html = applyScale(String(result.html || ""), scale);
   html = retime(html, Number(result.duration) || 0);
   console.log("[composition2] textScale", scale, "aspectRatio", args.aspectRatio);
   return { ...result, html };
