@@ -1,59 +1,69 @@
 // lib/composition2.ts
-// 包一層 buildComposition：
-//  1) 套用用戶揀嘅「文字大細」(textScale) — 放大／縮細所有 inline font-size。
-//  2) 按每場字數重新分配時間，避免長句字幕未讀完就切走。
+// Applies a viewport-independent text scale and retimes scenes from their actual visible text.
 import { buildComposition as baseComposition } from "./composition";
 
+type BaseArgs = Parameters<typeof baseComposition>[0];
 type BaseResult = Awaited<ReturnType<typeof baseComposition>>;
+type ExtendedArgs = BaseArgs & { textScale?: number };
 
-function applyScale(html: string, scale: number): string {
-  if (!scale || Math.abs(scale - 1) < 0.01) return html;
-  return html.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_m, n: string) =>
-    `font-size:${Math.max(12, Math.round(Number(n) * scale))}px`,
+function applyScale(html: string, requestedScale: number, aspectRatio: string): string {
+  // The base composition already multiplies all typography by width / 1920.
+  // Compensate for that internal scale so a chosen size has the same visual meaning in 9:16, 1:1 and 16:9.
+  const width = aspectRatio === "9:16" || aspectRatio === "1:1" || aspectRatio === "4:5" ? 1080 : 1920;
+  const baseViewportScale = width / 1920;
+  const factor = requestedScale / baseViewportScale;
+  if (Math.abs(factor - 1) < 0.01) return html;
+  return html.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
+    `font-size:${Math.max(12, Math.round(Number(value) * factor))}px`,
   );
 }
 
-/** 重新按字數分配每個 .clip 嘅 data-start / data-duration */
-function retime(html: string, total: number): string {
-  const re = /<div class="clip([^"]*)" id="([^"]+)" data-start="([\d.]+)" data-duration="([\d.]+)"/g;
-  const clips: Array<{ match: string; cls: string; id: string }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) clips.push({ match: m[0], cls: m[1], id: m[2] });
-  if (clips.length < 2 || !total) return html;
-
-  const weights = clips.map((c) => {
-    const start = html.indexOf(c.match);
-    const nextIdx = clips
-      .map((o) => html.indexOf(o.match))
-      .filter((i) => i > start)
-      .sort((a, b) => a - b)[0];
-    const chunk = html.slice(start, nextIdx === undefined ? html.length : nextIdx);
-    const textOnly = chunk.replace(/<[^>]*>/g, "").replace(/\s+/g, "");
-    return Math.max(6, textOnly.length);
-  });
-
-  const sum = weights.reduce((a, b) => a + b, 0) || 1;
-  const minScene = Math.min(1.8, total / clips.length);
-  let durations = weights.map((w) => Math.max(minScene, (w / sum) * total));
-  const dSum = durations.reduce((a, b) => a + b, 0) || 1;
-  durations = durations.map((d) => (d / dSum) * total);
-
-  let acc = 0;
-  let out = html;
-  clips.forEach((c, i) => {
-    const start = acc;
-    acc += durations[i];
-    const replacement = `<div class="clip${c.cls}" id="${c.id}" data-start="${start.toFixed(3)}" data-duration="${durations[i].toFixed(3)}"`;
-    out = out.replace(c.match, replacement);
-  });
-  return out;
+function visibleTextLength(chunk: string): number {
+  // Prefer the exact burned caption. It is the same scene text and excludes CSS/JS/meta labels.
+  const caption = chunk.match(/class="caption"[^>]*>\s*<span>([\s\S]*?)<\/span>/);
+  const reveal = chunk.match(/class="[^"]*reveal[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+  const source = caption?.[1] ?? reveal?.[1] ?? "";
+  const text = source
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(?:amp|lt|gt|quot|#039);/g, "x")
+    .replace(/\s+/g, "");
+  return Math.max(6, text.length);
 }
 
-export async function buildComposition(args: Parameters<typeof baseComposition>[0] & { textScale?: number }): Promise<BaseResult> {
+function retime(html: string, total: number): string {
+  const re = /<div class="clip([^"]*)" id="([^"]+)" data-start="([\d.]+)" data-duration="([\d.]+)"/g;
+  const clips: Array<{ match: string; cls: string; id: string; index: number }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html))) {
+    clips.push({ match: match[0], cls: match[1], id: match[2], index: match.index });
+  }
+  if (clips.length < 2 || total <= 0) return html;
+
+  const weights = clips.map((clip, index) => {
+    const end = index + 1 < clips.length ? clips[index + 1].index : html.indexOf("<script>", clip.index);
+    return visibleTextLength(html.slice(clip.index, end > clip.index ? end : html.length));
+  });
+  const sum = weights.reduce((a, b) => a + b, 0) || 1;
+  const minScene = Math.min(1.8, total / clips.length);
+  let durations = weights.map((weight) => Math.max(minScene, (weight / sum) * total));
+  const durationSum = durations.reduce((a, b) => a + b, 0) || 1;
+  durations = durations.map((duration) => (duration / durationSum) * total);
+
+  let elapsed = 0;
+  let output = html;
+  clips.forEach((clip, index) => {
+    const replacement = `<div class="clip${clip.cls}" id="${clip.id}" data-start="${elapsed.toFixed(3)}" data-duration="${durations[index].toFixed(3)}"`;
+    output = output.replace(clip.match, replacement);
+    elapsed += durations[index];
+  });
+  return output;
+}
+
+export async function buildComposition(args: ExtendedArgs): Promise<BaseResult> {
   const result = await baseComposition(args);
-  const scale = Math.min(2, Math.max(0.6, Number((args as { textScale?: number }).textScale) || 1));
-  let html = applyScale(String(result.html || ""), scale);
+  const scale = Math.min(2.4, Math.max(0.7, Number(args.textScale) || 1));
+  let html = applyScale(String(result.html || ""), scale, args.aspectRatio);
   html = retime(html, Number(result.duration) || 0);
-  console.log("[composition2] textScale", scale);
+  console.log("[composition2] textScale", scale, "aspectRatio", args.aspectRatio);
   return { ...result, html };
 }
