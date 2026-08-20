@@ -546,7 +546,7 @@ ${BACKGROUND_SCRIPT}
     style: args.style,
     captionStyle: subtitles ? "burned" : "none",
     audio: args.bgm
-      ? { src: args.bgm, volume: typeof args.bgmVolume === "number" ? args.bgmVolume : 0.25 }
+      ? { src: args.bgm, volume: typeof args.bgmVolume === "number" ? args.bgmVolume : 0.1 }
       : undefined,
     sceneCount: sceneTexts.length,
   };
