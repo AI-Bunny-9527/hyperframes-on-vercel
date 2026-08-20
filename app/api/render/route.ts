@@ -63,6 +63,8 @@ export async function POST(request: Request) {
       pace = "normal",
       bgm,
       bgm_volume,
+      narration_audio,
+      narration_seconds,
       title,
       hyperframes,
       brand_name,
@@ -86,7 +88,12 @@ export async function POST(request: Request) {
       prompt: typeof prompt === "string" ? prompt : undefined,
       style: typeof style === "string" ? style : "financial_commentary",
       aspectRatio: typeof aspect_ratio === "string" ? aspect_ratio : "16:9",
-      durationSeconds: typeof duration_seconds === "number" ? duration_seconds : 30,
+      durationSeconds:
+        typeof narration_seconds === "number" && narration_seconds > 0
+          ? Math.min(Math.ceil(narration_seconds), 600)
+          : typeof duration_seconds === "number"
+            ? duration_seconds
+            : 30,
       pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
       bgm: typeof bgm === "string" ? bgm : undefined,
       bgmVolume: typeof bgm_volume === "number" ? bgm_volume : undefined,
@@ -125,20 +132,46 @@ export async function POST(request: Request) {
       })),
     ];
 
-    let audio: { content: Buffer; volume: number; ext: string } | undefined;
-    if (typeof bgm === "string" && bgm.startsWith("http")) {
+    const extOf = (url: string, fallback = "mp3") => {
+      const ext = (url.split("?")[0].split(".").pop() || fallback).toLowerCase().slice(0, 4);
+      return /^[a-z0-9]+$/.test(ext) ? ext : fallback;
+    };
+
+    const download = async (url: string, label: string): Promise<Buffer | null> => {
       try {
-        const res = await fetch(bgm);
-        if (!res.ok) throw new Error(`bgm download failed (${res.status})`);
-        const buf = Buffer.from(await res.arrayBuffer());
-        const ext = (bgm.split("?")[0].split(".").pop() || "mp3").toLowerCase().slice(0, 4);
-        const volume =
-          typeof bgm_volume === "number" && bgm_volume >= 0 && bgm_volume <= 2 ? bgm_volume : 0.25;
-        audio = { content: buf, volume, ext: /^[a-z0-9]+$/.test(ext) ? ext : "mp3" };
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${label} download failed (${res.status})`);
+        return Buffer.from(await res.arrayBuffer());
       } catch (err) {
-        console.warn("[render] bgm skipped", err);
+        console.warn(`[render] ${label} skipped`, err);
+        return null;
+      }
+    };
+
+    const tracks: Array<{ content: Buffer; volume: number; ext: string; loop?: boolean; name?: string }> = [];
+
+    // 1) Narration voice-over (primary track, full volume).
+    if (typeof narration_audio === "string" && narration_audio.startsWith("http")) {
+      const buf = await download(narration_audio, "narration");
+      if (buf) {
+        tracks.push({ content: buf, volume: 1, ext: extOf(narration_audio), name: "narration" });
       }
     }
+
+    // 2) Background music (looped, ducked under the narration when present).
+    if (typeof bgm === "string" && bgm.startsWith("http")) {
+      const buf = await download(bgm, "bgm");
+      if (buf) {
+        const requested =
+          typeof bgm_volume === "number" && bgm_volume >= 0 && bgm_volume <= 2 ? bgm_volume : 0.25;
+        const volume = tracks.length > 0 ? Math.min(requested, 0.18) : requested;
+        tracks.push({ content: buf, volume, ext: extOf(bgm), loop: true, name: "bgm" });
+      }
+    }
+
+    const audio = tracks.length > 0 ? tracks : undefined;
+
+    console.log("[render] audio tracks", tracks.map((t) => ({ name: t.name, volume: t.volume })));
 
     // Async mode: start the render and return immediately; the client polls
     // with mode:"status" so長片唔會受 serverless timeout 限制.

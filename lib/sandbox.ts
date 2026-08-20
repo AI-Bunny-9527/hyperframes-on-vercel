@@ -118,9 +118,81 @@ async function restoreOrCreate(): Promise<Sandbox> {
   return sandbox;
 }
 
+export interface AudioTrack {
+  content: Buffer;
+  volume: number;
+  ext: string;
+  /** Loop the track to cover the whole video (background music). */
+  loop?: boolean;
+  /** File name prefix inside the sandbox. */
+  name?: string;
+}
+
+/** Normalise legacy single-track input into an array. */
+export function toTracks(
+  audio?: AudioTrack | ReadonlyArray<AudioTrack>,
+): AudioTrack[] {
+  if (!audio) return [];
+  return Array.isArray(audio) ? [...audio] : [audio as AudioTrack];
+}
+
+/**
+ * Build the ffmpeg command (as argv) that mixes every audio track into the
+ * rendered mp4. Narration keeps full volume, background music is looped and
+ * mixed underneath it.
+ */
+export function buildMuxPlan(tracks: ReadonlyArray<AudioTrack>): {
+  files: Array<{ path: string; content: Buffer }>;
+  args: string[];
+  output: string;
+} | null {
+  if (tracks.length === 0) return null;
+
+  const files: Array<{ path: string; content: Buffer }> = [];
+  const args: string[] = ["-y", "-i", "out.mp4"];
+  const filters: string[] = [];
+  const labels: string[] = [];
+
+  tracks.forEach((track, i) => {
+    const ext = /^[a-z0-9]+$/.test(track.ext) ? track.ext : "mp3";
+    const path = `${track.name || `track${i}`}.${ext}`;
+    files.push({ path, content: track.content });
+    if (track.loop) args.push("-stream_loop", "-1");
+    args.push("-i", path);
+    const label = `a${i}`;
+    filters.push(`[${i + 1}:a]volume=${track.volume}[${label}]`);
+    labels.push(`[${label}]`);
+  });
+
+  let outLabel = labels[0];
+  if (labels.length > 1) {
+    filters.push(
+      `${labels.join("")}amix=inputs=${labels.length}:duration=first:dropout_transition=0:normalize=0[mix]`,
+    );
+    outLabel = "[mix]";
+  }
+
+  args.push(
+    "-filter_complex",
+    filters.join(";"),
+    "-map",
+    "0:v",
+    "-map",
+    outLabel,
+    "-c:v",
+    "copy",
+    "-c:a",
+    "aac",
+    "-shortest",
+    "final.mp4",
+  );
+
+  return { files, args, output: "final.mp4" };
+}
+
 export async function renderInSandbox(
   compositionFiles: ReadonlyArray<{ rel: string; content: Buffer }>,
-  audio?: { content: Buffer; volume: number; ext: string },
+  audio?: AudioTrack | ReadonlyArray<AudioTrack>,
 ): Promise<RenderResult> {
   const t0 = Date.now();
   const sandbox = await restoreOrCreate();
@@ -144,26 +216,11 @@ export async function renderInSandbox(
 
     let output = "out.mp4";
 
-    if (audio) {
-      const audioPath = `bgm.${audio.ext}`;
-      await sandbox.writeFiles([{ path: audioPath, content: audio.content }]);
-      await runSandboxCommand(sandbox, "mux bgm", {
-        cmd: "ffmpeg",
-        args: [
-          "-y",
-          "-i", "out.mp4",
-          "-stream_loop", "-1",
-          "-i", audioPath,
-          "-filter_complex", `[1:a]volume=${audio.volume}[a]`,
-          "-map", "0:v",
-          "-map", "[a]",
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-shortest",
-          "final.mp4",
-        ],
-      });
-      output = "final.mp4";
+    const plan = buildMuxPlan(toTracks(audio));
+    if (plan) {
+      await sandbox.writeFiles(plan.files);
+      await runSandboxCommand(sandbox, "mux audio", { cmd: "ffmpeg", args: plan.args });
+      output = plan.output;
     }
 
     const mp4 = await sandbox.readFileToBuffer({ path: output });
@@ -173,7 +230,6 @@ export async function renderInSandbox(
     await sandbox.stop().catch(() => {});
   }
 }
-
 
 export async function collectFiles(
   root: string,

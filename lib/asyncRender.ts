@@ -3,7 +3,7 @@
 
 import { Sandbox } from "@vercel/sandbox";
 import { get } from "@vercel/blob";
-import { prepareSandbox } from "./sandbox";
+import { prepareSandbox, buildMuxPlan, toTracks, type AudioTrack } from "./sandbox";
 
 const SANDBOX_TIMEOUT_MS = 45 * 60 * 1000;
 const RESOURCES = { vcpus: 4 } as const;
@@ -36,18 +36,21 @@ async function newSandbox(): Promise<Sandbox> {
 
 export async function startRender(
   files: ReadonlyArray<{ rel: string; content: Buffer }>,
-  audio?: { content: Buffer; volume: number; ext: string },
+  audio?: AudioTrack | ReadonlyArray<AudioTrack>,
 ): Promise<{ sandboxId: string; cmdId: string; output: string }> {
   const sandbox = await newSandbox();
   await sandbox.writeFiles(files.map(({ rel, content }) => ({ path: `composition/${rel}`, content })));
 
   let body = "npx --no-install hyperframes render composition -o out.mp4 --workers auto\n";
   let output = "out.mp4";
-  if (audio) {
-    const audioPath = `bgm.${audio.ext}`;
-    await sandbox.writeFiles([{ path: audioPath, content: audio.content }]);
-    body += `ffmpeg -y -i out.mp4 -stream_loop -1 -i ${audioPath} -filter_complex "[1:a]volume=${audio.volume}[a]" -map 0:v -map "[a]" -c:v copy -c:a aac -shortest final.mp4\n`;
-    output = "final.mp4";
+  const plan = buildMuxPlan(toTracks(audio));
+  if (plan) {
+    await sandbox.writeFiles(plan.files);
+    const quoted = plan.args
+      .map((arg) => `'${arg.replace(/'/g, "'\\''")}'`)
+      .join(" ");
+    body += `ffmpeg ${quoted}\n`;
+    output = plan.output;
   }
 
   // Write an explicit status file: detached commands do not reliably report
