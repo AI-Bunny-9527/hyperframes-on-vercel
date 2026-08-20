@@ -80,7 +80,18 @@ export async function collectRender(params: {
   cmdId: string;
   output: string;
 }): Promise<RenderStatus> {
-  const sandbox = await Sandbox.get({ sandboxId: params.sandboxId });
+  let sandbox: Sandbox;
+  try {
+    sandbox = await Sandbox.get({ sandboxId: params.sandboxId });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      status: "failed",
+      message:
+        "渲染沙盒已結束或被回收（可能超出 45 分鐘上限，或影片太長）。請縮短旁白／影片長度後再試。" +
+        ` [${msg.slice(0, 200)}]`,
+    };
+  }
 
   const statusText = await readText(sandbox, "render.status");
   if (statusText === null) return { status: "running" };
