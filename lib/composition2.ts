@@ -13,9 +13,14 @@ function applyScale(html: string, requestedScale: number, aspectRatio: string): 
   const baseViewportScale = width / 1920;
   const factor = requestedScale / baseViewportScale;
   if (Math.abs(factor - 1) < 0.01) return html;
-  return html.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
+  let out = html.replace(/font-size:\s*(\d+(?:\.\d+)?)px/g, (_match, value: string) =>
     `font-size:${Math.max(12, Math.round(Number(value) * factor))}px`,
   );
+  // Large text needs the copy block to use the full frame, otherwise it stays visually small.
+  if (factor > 1.2) {
+    out = out.replace(/max-width:\s*\d+(?:\.\d+)?%/g, "max-width:100%");
+  }
+  return out;
 }
 
 function visibleTextLength(chunk: string): number {
@@ -61,7 +66,7 @@ function retime(html: string, total: number): string {
 
 export async function buildComposition(args: ExtendedArgs): Promise<BaseResult> {
   const result = await baseComposition(args);
-  const scale = Math.min(2.4, Math.max(0.7, Number(args.textScale) || 1));
+  const scale = Math.min(3.5, Math.max(0.6, Number(args.textScale) || 1));
   let html = applyScale(String(result.html || ""), scale, args.aspectRatio);
   html = retime(html, Number(result.duration) || 0);
   console.log("[composition2] textScale", scale, "aspectRatio", args.aspectRatio);
