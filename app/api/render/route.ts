@@ -6,7 +6,7 @@ import { buildComposition } from "../../../lib/composition2";
 import { renderInSandbox } from "../../../lib/sandbox";
 import { collectRender, startRender } from "../../../lib/asyncRender";
 
-export const maxDuration = 300;
+export const maxDuration = 800;
 export const dynamic = "force-dynamic";
 
 const CORS_HEADERS = {
