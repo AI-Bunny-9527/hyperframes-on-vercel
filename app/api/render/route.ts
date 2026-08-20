@@ -2,7 +2,7 @@
 // 接收主 App 傳嚟參數，掛載 HyperFrames registry 組件，喺 Vercel Sandbox 渲染影片。
 
 import { put } from "@vercel/blob";
-import { buildComposition } from "../../../lib/composition";
+import { buildComposition } from "../../../lib/composition2";
 import { renderInSandbox } from "../../../lib/sandbox";
 import { collectRender, startRender } from "../../../lib/asyncRender";
 
@@ -65,6 +65,7 @@ export async function POST(request: Request) {
       bgm_volume,
       narration_audio,
       narration_seconds,
+      text_scale,
       title,
       hyperframes,
       brand_name,
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
           : typeof duration_seconds === "number"
             ? duration_seconds
             : 30,
+      textScale: typeof text_scale === "number" ? text_scale : 1,
       pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
       bgm: typeof bgm === "string" ? bgm : undefined,
       bgmVolume: typeof bgm_volume === "number" ? bgm_volume : undefined,
