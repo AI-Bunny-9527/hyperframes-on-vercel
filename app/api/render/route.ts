@@ -95,7 +95,7 @@ export async function POST(request: Request) {
           : typeof duration_seconds === "number"
             ? duration_seconds
             : 30,
-      textScale: typeof text_scale === "number" ? text_scale : 1,
+      textScale: typeof text_scale === "number" ? text_scale : 0.35,
       pace: pace === "slow" || pace === "normal" || pace === "fast" ? pace : "normal",
       bgm: typeof bgm === "string" ? bgm : undefined,
       bgmVolume: typeof bgm_volume === "number" ? bgm_volume : undefined,
