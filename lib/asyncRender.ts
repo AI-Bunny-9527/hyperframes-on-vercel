@@ -3,7 +3,9 @@
 
 import { Sandbox } from "@vercel/sandbox";
 import { get } from "@vercel/blob";
-import { prepareSandbox, buildMuxPlan, toTracks, type AudioTrack } from "./sandbox";
+import { prepareSandbox, ensureRendererVersion, buildMuxPlan, toTracks, type AudioTrack } from "./sandbox";
+
+import { RENDER_ARGS, renderDiagnostic, isSandboxUnavailable, sandboxUnavailableMessage } from "./renderPolicy";
 
 const SANDBOX_TIMEOUT_MS = 45 * 60 * 1000;
 const RESOURCES = { vcpus: 4 } as const;
@@ -16,11 +18,18 @@ async function newSandbox(): Promise<Sandbox> {
       const res = await get(`snapshot-cache/${deploymentId}.json`, { access: "public", token });
       if (!res || res.statusCode !== 200) throw new Error("snapshot pointer missing");
       const { snapshotId } = (await new Response(res.stream).json()) as { snapshotId: string };
-      return await Sandbox.create({
+      const sandbox = await Sandbox.create({
         source: { type: "snapshot", snapshotId },
         timeout: SANDBOX_TIMEOUT_MS,
         resources: RESOURCES,
       });
+      try {
+        await ensureRendererVersion(sandbox);
+        return sandbox;
+      } catch (err) {
+        await sandbox.stop().catch(() => {});
+        throw err;
+      }
     } catch (err) {
       console.warn("[asyncRender] snapshot restore failed", err);
     }
@@ -41,7 +50,8 @@ export async function startRender(
   const sandbox = await newSandbox();
   await sandbox.writeFiles(files.map(({ rel, content }) => ({ path: `composition/${rel}`, content })));
 
-  let body = "npx --no-install hyperframes render composition -o out.mp4 --workers auto\n";
+  let body = `printf 'node=%s renderer=%s\\n' "$(node --version)" "$(node -p 'require(\"hyperframes/package.json\").version')"\n`;
+  body += `npx ${RENDER_ARGS.join(" ")}\n`;
   let output = "out.mp4";
   const plan = buildMuxPlan(toTracks(audio));
   if (plan) {
@@ -70,8 +80,11 @@ async function readText(sandbox: Sandbox, path: string): Promise<string | null> 
   try {
     const buf = await sandbox.readFileToBuffer({ path });
     return buf ? buf.toString("utf8") : null;
-  } catch {
-    return null;
+  } catch (err) {
+    if (isSandboxUnavailable(err)) throw err;
+    // Missing status is expected while the detached command is running.
+    if (/ENOENT|not found|\b404\b/i.test(err instanceof Error ? err.message : String(err))) return null;
+    throw err;
   }
 }
 
@@ -84,23 +97,31 @@ export async function collectRender(params: {
   try {
     sandbox = await Sandbox.get({ sandboxId: params.sandboxId });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      status: "failed",
-      message:
-        "渲染沙盒已結束或被回收（可能超出 45 分鐘上限，或影片太長）。請縮短旁白／影片長度後再試。" +
-        ` [${msg.slice(0, 200)}]`,
-    };
+    if (!isSandboxUnavailable(err)) {
+      console.warn("[render] temporary status lookup failure", { sandboxId: params.sandboxId });
+      return { status: "running" };
+    }
+    return { status: "failed", message: sandboxUnavailableMessage(err) };
   }
 
-  const statusText = await readText(sandbox, "render.status");
+  let statusText: string | null;
+  try {
+    statusText = await readText(sandbox, "render.status");
+  } catch (err) {
+    if (!isSandboxUnavailable(err)) {
+      console.warn("[render] temporary status lookup failure", { sandboxId: params.sandboxId });
+      return { status: "running" };
+    }
+    return { status: "failed", message: sandboxUnavailableMessage(err) };
+  }
   if (statusText === null) return { status: "running" };
 
   const exitCode = Number(statusText.trim());
   if (exitCode !== 0) {
     const log = (await readText(sandbox, "render.log")) || "";
+    console.error("[render] native diagnostic", { sandboxId: params.sandboxId, cmdId: params.cmdId, diagnostic: renderDiagnostic(log, exitCode) });
     await sandbox.stop().catch(() => {});
-    return { status: "failed", message: log.slice(-1500) || `render exited ${exitCode}` };
+    return { status: "failed", message: log.slice(-12000) || `render exited ${exitCode}` };
   }
 
   let mp4: Buffer | null = null;
@@ -110,6 +131,7 @@ export async function collectRender(params: {
     mp4 = null;
   }
   const log = mp4 ? "" : (await readText(sandbox, "render.log")) || "";
+  if (!mp4) console.error("[render] missing output", { sandboxId: params.sandboxId, diagnostic: renderDiagnostic(log, exitCode) });
   await sandbox.stop().catch(() => {});
   if (!mp4) {
     return { status: "failed", message: log.slice(-1500) || `render produced no ${params.output}` };

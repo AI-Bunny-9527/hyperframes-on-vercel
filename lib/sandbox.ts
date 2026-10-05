@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { Sandbox } from "@vercel/sandbox";
 import { get, put } from "@vercel/blob";
+import { RENDERER_VERSION, RENDER_ARGS, renderDiagnostic } from "./renderPolicy";
 
 const RENDER_TIMEOUT_MS = 10 * 60 * 1000;
 const SNAPSHOT_SETUP_TIMEOUT_MS = 15 * 60 * 1000;
@@ -24,8 +25,21 @@ export async function runSandboxCommand(
 ): Promise<void> {
   const result = await sandbox.runCommand(opts);
   if (result.exitCode !== 0) {
-    throw new Error(`${label} failed (exit ${result.exitCode}):\n${await result.stderr()}`);
+    const log = `${await result.stdout()}\n${await result.stderr()}`;
+    if (label === "render") console.error("[render] native diagnostic", renderDiagnostic(log, result.exitCode));
+    throw new Error(`${label} failed (exit ${result.exitCode}):\n${log.slice(-12000)}`);
   }
+}
+
+export async function ensureRendererVersion(sandbox: Sandbox): Promise<void> {
+  const version = await sandbox.runCommand({
+    cmd: "node", args: ["-p", 'require("hyperframes/package.json").version'],
+  });
+  if (version.exitCode === 0 && (await version.stdout()).trim() === RENDERER_VERSION) return;
+  await runSandboxCommand(sandbox, "renderer version", {
+    cmd: "npm",
+    args: ["install", "--no-save", "--no-audit", "--no-fund", `hyperframes@${RENDERER_VERSION}`],
+  });
 }
 
 export async function prepareSandbox(sandbox: Sandbox): Promise<void> {
@@ -45,7 +59,7 @@ export async function prepareSandbox(sandbox: Sandbox): Promise<void> {
       cmd: "npm",
       args: [
         "install", "--no-save", "--no-audit", "--no-fund",
-        "hyperframes@latest", "ffmpeg-static", "ffprobe-static",
+        `hyperframes@${RENDERER_VERSION}`, "ffmpeg-static", "ffprobe-static",
       ],
     }),
   ]);
@@ -102,11 +116,18 @@ async function restoreOrCreate(): Promise<Sandbox> {
   if (deploymentId && token) {
     try {
       const snapshotId = await readSnapshotId(deploymentId, token);
-      return await Sandbox.create({
+      const sandbox = await Sandbox.create({
         source: { type: "snapshot", snapshotId },
         timeout: RENDER_TIMEOUT_MS,
         resources: SANDBOX_OPTS.resources,
       });
+      try {
+        await ensureRendererVersion(sandbox);
+        return sandbox;
+      } catch (err) {
+        await sandbox.stop().catch(() => {});
+        throw err;
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[sandbox] snapshot restore failed, falling back to fresh setup: ${msg}`);
@@ -207,11 +228,7 @@ export async function renderInSandbox(
 
     await runSandboxCommand(sandbox, "render", {
       cmd: "npx",
-      args: [
-        "--no-install", "hyperframes", "render", "composition",
-        "-o", "out.mp4",
-        "--workers", "auto",
-      ],
+      args: RENDER_ARGS,
     });
 
     let output = "out.mp4";
